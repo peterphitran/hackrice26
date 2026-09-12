@@ -1,6 +1,6 @@
 # Repository Intelligence
 
-Ledger should understand repository structure and relationships rather than only inspecting changed files.
+Lou should understand repository structure and relationships rather than only inspecting changed files.
 
 ## Tree-sitter
 
@@ -89,7 +89,7 @@ These later contribute to:
 
 ## Static Analysis
 
-Ledger should wrap existing analyzers.
+Lou should wrap existing analyzers.
 
 ### Python
 
@@ -123,7 +123,7 @@ For the MVP, support one language first.
 
 ## SARIF
 
-Use SARIF for analyzer interoperability, then normalize into a Ledger-specific finding model.
+Use SARIF for analyzer interoperability, then normalize into a Lou-specific finding model.
 
 Example:
 
@@ -138,3 +138,26 @@ Example:
   "symbol": "PaymentService.authorize"
 }
 ```
+
+## Vendor-Neutral Ingestion
+
+Lou should integrate existing sources rather than attempting to replace them. Adapters may ingest code-quality, security, CI, observability, incident, and planning data while keeping downstream models independent of any vendor.
+
+```text
+Semgrep / CodeQL / native linters ─┐
+GitHub / GitLab / CI providers ────┤
+OpenTelemetry / incident tools ────┼── normalized evidence ── graph
+Issue trackers / ownership data ───┘
+```
+
+Every imported record needs a source, source-native ID, repository and commit identity, collection time, schema version, and confidence or completeness indicator.
+
+## Hybrid Context Retrieval
+
+Graph traversal answers what is structurally related; semantic retrieval answers what appears conceptually related. Use both, rerank the combined result, and enforce a context budget.
+
+The context bundle for an agent should contain the finding, changed symbol, callers and callees, interfaces, affected tests, relevant historical changes, runtime evidence, and explicit notices about relationships the indexer could not resolve. Missing graph context must reduce confidence rather than being treated as evidence that no dependency exists.
+
+## Impact Prediction Evaluation
+
+Before verification, store the predicted affected symbols, tests, services, contracts, data stores, and runtime paths. After execution, record what actually changed or failed. Evaluate precision and recall so the graph becomes measurable infrastructure rather than an untested source of agent context.

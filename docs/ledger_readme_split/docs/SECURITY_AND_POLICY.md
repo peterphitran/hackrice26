@@ -1,6 +1,6 @@
 # Security & Policy
 
-Ledger executes untrusted repository code and therefore needs a strict security boundary.
+Lou executes untrusted repository code and therefore needs a strict security boundary.
 
 ## Sandbox Isolation
 
@@ -26,7 +26,7 @@ non-root users
 restricted network
 ```
 
-Move from Docker to gVisor or Firecracker if Ledger becomes a multi-tenant product.
+Move from Docker to gVisor or Firecracker if Lou becomes a multi-tenant product.
 
 ## GitHub Security
 
@@ -46,9 +46,23 @@ open pull requests
 
 Follow least privilege.
 
+Suggested starting permissions:
+
+```text
+Metadata        read
+Contents        read
+Checks          write
+Pull requests   write
+Contents        write only in the trusted PR-publishing service
+```
+
+Verify `X-Hub-Signature-256` before accepting a webhook. Installation tokens must be short-lived and scoped to the selected repository. Do not execute untrusted pull-request code in a workflow context that also exposes privileged secrets.
+
 ## Agent Security
 
 Repository content must be treated as untrusted input.
+
+This includes comments, documentation, tests, build output, issue text, dependency metadata, and source-code instructions that attempt prompt injection.
 
 The agent should not receive privileged infrastructure credentials.
 
@@ -61,6 +75,19 @@ Trusted verifier validates
       ↓
 Trusted control plane creates branch / PR
 ```
+
+Agent capabilities should be deny-by-default:
+
+```text
+READ          selected repository worktree and evidence only
+WRITE         temporary worktree only
+NETWORK       denied except explicit allowlisted package access
+CREDENTIALS   none
+GIT           create a local diff; never push
+TOOLS         allowlisted commands with time and resource budgets
+```
+
+Dependency installation is a network and code-execution boundary. Prefer locked dependencies, an internal or allowlisted proxy, checksum verification, and separate caches that cannot be poisoned across tenants.
 
 ## Open Policy Agent
 
@@ -82,6 +109,8 @@ Not allowed:
 ✗ Auto-deploy
 ```
 
-Ledger predicts risk.
+Lou predicts risk.
 
 OPA determines whether policy permits the action.
+
+Policy inputs, decision ID, policy revision, selected autonomy, and final privileged action should be retained in an audit log. Emergency cancellation and repository-level disable controls must remain available outside the agent workflow.

@@ -13,6 +13,7 @@
 | Styling | Tailwind CSS | UI styling |
 | Charts | Recharts | Risk, debt, and performance visualization |
 | Database | PostgreSQL | Persistent product and analysis data |
+| MVP job queue | Redis + Celery | Decouple webhook handling from bounded analysis jobs |
 | Agent orchestration | LangGraph | Stateful workflows, retries, approvals |
 | Repository parsing | Tree-sitter | AST and syntax extraction |
 | Semantic indexing | SCIP | Definitions, references, symbol resolution |
@@ -24,7 +25,7 @@
 | Observability | OpenTelemetry | Metrics, traces, runtime correlation |
 | Git integration | GitHub App | Webhooks, PRs, checks, branches |
 | Policy engine | Open Policy Agent | Autonomy and safety policies |
-| CLI | Typer + Rich | Local Ledger commands |
+| CLI | Typer + Rich | Local Lou commands |
 | CI | GitHub Actions | CI integration |
 
 ## Future Infrastructure
@@ -75,6 +76,8 @@ FastAPI owns:
 - verification runs
 - frontend API
 
+Webhook handlers should authenticate, deduplicate, persist a run, enqueue work, and return quickly. CPU-heavy analysis and untrusted execution belong in workers, not API processes.
+
 Example endpoints:
 
 ```text
@@ -94,11 +97,19 @@ GET /verification-runs/{id}
 Using Typer + Rich:
 
 ```bash
-ledger scan
-ledger run
-ledger explain
-ledger fix
-ledger verify
+lou scan
+lou run
+lou explain
+lou fix
+lou verify
 ```
 
 Use the CLI for local development, debugging, CI usage, and workflows that do not require GitHub.
+
+## Technology Boundaries
+
+- LangGraph owns agent workflow state, branching, retries, and human interrupts; it does not replace a job queue or implement domain logic.
+- Celery is adequate for bounded MVP jobs. Introduce Temporal only if workflows require durable timers, cross-service recovery, or multi-day coordination that becomes difficult to model safely.
+- PostgreSQL is the system of record. NetworkX is an in-process analysis tool, not a persistence layer.
+- SARIF is an interchange format; the richer Lou finding and evidence contracts are the internal domain model.
+- Docker is acceptable for a controlled MVP but not the final multi-tenant security boundary.

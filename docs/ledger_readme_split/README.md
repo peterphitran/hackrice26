@@ -2,6 +2,8 @@
 
 Project Lou is an AI-native software engineering platform that analyzes repositories, detects technical debt and runtime regressions, proposes remediations, verifies fixes through testing and load testing, and eventually learns from deployment outcomes.
 
+Lou is not primarily another code-review bot or a detector for supposedly AI-authored code. It is a vendor-neutral decision and learning layer for software maintenance: it determines which debt is worth fixing, predicts the consequences of a proposed change, decides how much autonomy an agent should receive, and checks whether the intervention delivered the predicted outcome.
+
 ## Core Goal
 
 Lou should answer five questions:
@@ -72,6 +74,19 @@ Open remediation PR / GitHub check
 The MVP should prove one thing extremely well:
 
 > Lou can find a problem ordinary CI misses, generate a fix, and prove the fix works.
+
+### MVP success criteria
+
+The first demo is successful when it can repeatedly:
+
+1. detect a known runtime or performance regression that the normal test suite misses;
+2. preserve the raw evidence that explains the finding;
+3. generate a minimal patch in an isolated worktree;
+4. rerun the same workload under the same resource limits;
+5. show a meaningful baseline → PR → fix comparison; and
+6. open a remediation pull request without giving the agent write credentials.
+
+The MVP intentionally excludes multi-language indexing, Kubernetes, auto-merge, auto-deploy, learned scoring models, enterprise policy management, and a large dashboard suite.
 
 ## Core Stack
 
@@ -207,6 +222,10 @@ risk = decision_engine.evaluate(change)
 ```
 
 rather than embedding core business rules directly inside agent nodes.
+
+### Predict, then measure
+
+Lou should record its expectation before executing or deploying a change. A useful result includes both the prediction and the observed outcome, including uncertainty and any missed impact. This makes debt, blast-radius, and remediation-risk models testable rather than decorative scores.
 
 ## Long-Term Vision
 

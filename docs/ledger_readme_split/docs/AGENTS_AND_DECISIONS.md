@@ -30,7 +30,7 @@ passed?
 ## Example State
 
 ```python
-class LedgerState(TypedDict):
+class LouState(TypedDict):
     repo_id: str
     commit_sha: str
     pr_number: int
@@ -144,3 +144,40 @@ allowed autonomy
 ```
 
 Keep this logic outside LangGraph so it can be tested independently.
+
+## Decision Objective
+
+A high debt score alone does not justify a change. The decision engine should compare the expected cost of leaving the debt with the full expected cost of remediation:
+
+```text
+Expected value of fix
+= predicted debt avoided
+- remediation effort
+- verification compute cost
+- expected regression cost
+```
+
+The result must include calibrated uncertainty. Low-confidence or incomplete repository context should increase required verification or lower autonomy; it must not be converted into false precision.
+
+## Dynamic Autonomy Inputs
+
+Select autonomy per proposed patch rather than granting a permanent capability to an agent. Inputs include:
+
+```text
+blast radius
+system criticality
+test coverage and verification strength
+reversibility and rollback cost
+schema or data migration impact
+historical failures
+policy constraints
+model confidence and missing context
+```
+
+OPA sets the hard organizational ceiling. The decision engine may choose a stricter action but never exceed policy.
+
+## Agent Roles and Separation
+
+Roles such as diagnosis, planning, patching, test generation, and review may use separate prompts or graph nodes, but they share one explicit workflow state and evidence model. The verifier must be independent of the patch generator and must not accept the generator's narrative as proof.
+
+Agents only propose artifacts. A trusted service validates the patch and performs GitHub writes. Retry limits, token and compute budgets, repeated-patch detection, and an explicit `ABANDONED` outcome prevent unbounded remediation loops.

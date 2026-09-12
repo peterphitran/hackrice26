@@ -40,7 +40,7 @@ A4  Auto-merge
 A5  Auto-deploy
 ```
 
-For the MVP, Ledger should stop at:
+For the MVP, Lou should stop at:
 
 ```text
 A3 — Open Pull Request

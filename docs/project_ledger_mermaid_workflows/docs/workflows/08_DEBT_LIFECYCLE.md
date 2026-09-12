@@ -2,7 +2,7 @@
 
 ```mermaid
 flowchart TD
-    A[Code Change] --> B[Ledger Analysis]
+    A[Code Change] --> B[Lou Analysis]
 
     B --> C{Debt Detected?}
 
@@ -13,7 +13,7 @@ flowchart TD
     E --> G[Estimate Interest]
     E --> H[Estimate Runtime / Business Impact]
 
-    F --> I[Debt Ledger]
+    F --> I[Debt Portfolio]
     G --> I
     H --> I
 
@@ -38,7 +38,7 @@ flowchart TD
     U --> J
 ```
 
-## Ledger Model
+## Lou Model
 
 ```text
 Principal

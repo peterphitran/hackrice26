@@ -1,10 +1,10 @@
-# End-to-End Ledger Workflow
+# End-to-End Lou Workflow
 
 ```mermaid
 flowchart TD
     A[Developer Push / Pull Request] --> B[GitHub App / Webhook]
 
-    B --> C[Ledger API - FastAPI]
+    B --> C[Lou API - FastAPI]
     C --> D[Ingest Repository Change]
 
     D --> E[Repository Intelligence]
@@ -18,7 +18,7 @@ flowchart TD
     E3 --> F
     E4 --> F
 
-    F --> G[Ledger Risk / Debt Score]
+    F --> G[Lou Risk / Debt Score]
     G --> H[Build Application]
     H --> I[Run Unit / Integration Tests]
 
@@ -32,7 +32,7 @@ flowchart TD
 
     N --> O{Issue / Regression Detected?}
 
-    O -- No --> P[Final Ledger Decision]
+    O -- No --> P[Final Lou Decision]
     O -- Yes --> K
 
     K --> Q[Diagnose Failure]
@@ -54,7 +54,7 @@ flowchart TD
 
 ## Purpose
 
-This is the primary Ledger workflow:
+This is the primary Lou workflow:
 
 ```text
 Inspect

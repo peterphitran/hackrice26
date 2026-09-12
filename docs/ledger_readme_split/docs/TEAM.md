@@ -104,7 +104,7 @@ Primary output:
 ```text
 GitHub PR
  ↓
-Ledger pipeline
+Lou pipeline
  ↓
 results
  ↓
@@ -162,10 +162,10 @@ class AgentResult:
     confidence: float
 ```
 
-### LedgerDecision
+### LouDecision
 
 ```python
-class LedgerDecision:
+class LouDecision:
     debt_score: float
     change_risk: float
     action: Literal[
@@ -175,3 +175,32 @@ class LedgerDecision:
         "OPEN_PR",
     ]
 ```
+
+### AnalysisJob
+
+```python
+class AnalysisJob:
+    repository_id: str
+    base_commit_sha: str
+    candidate_commit_sha: str
+    policy_revision: str
+    toolchain_revision: str
+    verification_plan: dict
+    resource_limits: dict
+```
+
+### Evidence
+
+```python
+class Evidence:
+    id: str
+    kind: str
+    source: str
+    commit_sha: str
+    artifact_uri: str
+    collected_at: str
+    schema_version: str
+    metadata: dict
+```
+
+Contract changes should be versioned and reviewed across subsystem owners. Each boundary needs fixtures and consumer-driven tests before teams implement against it independently.
