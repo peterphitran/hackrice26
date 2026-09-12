@@ -16,6 +16,8 @@ How does a judge understand the result?
 ```
 
 The detailed acceptance criteria live in the [master task board](../../TASKS.md), and table design lives in the [database schema plan](../../DATABASE_SCHEMA.md).
+The implementation boundaries and commands for the initial scaffold are in the
+[platform foundation specification](../../foundation/README.md).
 
 ## Owned Paths
 
