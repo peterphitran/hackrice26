@@ -11,7 +11,7 @@ flowchart LR
     C --> C3[Unit / Integration Tests]
     C --> C4[Security Scan]
 
-    C1 --> D[Ledger Quality Gate]
+    C1 --> D[Lou Quality Gate]
     C2 --> D
     C3 --> D
     C4 --> D
@@ -21,7 +21,7 @@ flowchart LR
     D --> D3[Load Testing]
     D --> D4[Debt / Risk Analysis]
 
-    D1 --> E{Ledger Decision}
+    D1 --> E{Lou Decision}
     D2 --> E
     D3 --> E
     D4 --> E
@@ -30,7 +30,7 @@ flowchart LR
     E -->|Remediable| G[AI Remediation]
     E -->|High Risk| H[Human Review]
 
-    G --> I[Re-run CI + Ledger]
+    G --> I[Re-run CI + Lou]
     I --> E
 
     H --> F
@@ -40,7 +40,7 @@ flowchart LR
     L --> M[Production]
 ```
 
-## Ledger's Role
+## Lou's Role
 
-Ledger acts as an additional quality and risk layer between ordinary CI checks
+Lou acts as an additional quality and risk layer between ordinary CI checks
 and the final merge/deployment decision.

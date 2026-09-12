@@ -63,7 +63,7 @@ open PR
 
 Goal:
 
-> Demonstrate that Ledger can fix and verify a problem.
+> Demonstrate that Lou can fix and verify a problem.
 
 ## M3 — Repository Graph
 
@@ -84,7 +84,11 @@ affected tests
 blast radius
 ```
 
-## M4 — Risk Model
+## M4 — Impact Prediction
+
+Before executing a candidate, predict affected symbols, tests, services, contracts, data stores, and runtime paths. Compare the prediction with verification results and track precision and recall.
+
+## M5 — Risk Model
 
 Add:
 
@@ -95,11 +99,13 @@ Confidence
 Autonomy Level
 ```
 
-## M5 — Adaptive Validation
+Include uncertainty, criticality, reversibility, and expected value. Let policy cap the permitted autonomy.
+
+## M6 — Adaptive Validation
 
 Use repository graph context to determine which tests and load scenarios should run.
 
-## M6 — Runtime Correlation
+## M7 — Runtime Correlation
 
 Add:
 
@@ -109,7 +115,7 @@ runtime-to-code correlation
 trace evidence
 ```
 
-## M7 — Production Loop
+## M8 — Production Loop
 
 Later:
 
@@ -127,7 +133,7 @@ continue / rollback
 
 Use Argo Rollouts rather than building a custom deployment controller.
 
-## M8 — Learning
+## M9 — Learning
 
 Store:
 
@@ -141,7 +147,9 @@ production outcome
 
 Then calibrate future predictions.
 
-## M9 — Technical Debt Portfolio
+Evaluate prediction error and calibration against simple baselines before replacing transparent heuristics.
+
+## M10 — Technical Debt Portfolio
 
 Eventually allow organizations to provide:
 
@@ -151,7 +159,7 @@ compute budget
 maximum remediation risk
 ```
 
-Ledger chooses the debt items with the highest expected return.
+Lou chooses the debt items with the highest expected return.
 
 ## What Not to Build Yet
 
