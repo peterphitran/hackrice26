@@ -31,6 +31,8 @@ Decision
 
 ## PostgreSQL Entities
 
+The concrete hackathon schema, relationships, indexes, and draft DDL are defined in the [PostgreSQL Schema Plan](../../hackathon/DATABASE_SCHEMA.md).
+
 Initial entities:
 
 ```text
