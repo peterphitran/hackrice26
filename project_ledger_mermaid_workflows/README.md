@@ -1,10 +1,10 @@
-# Project Ledger — Mermaid Workflow Diagrams
+# Project Lou — Mermaid Workflow Diagrams
 
-This folder contains copy-paste-ready Mermaid diagrams for Project Ledger.
+This folder contains copy-paste-ready Mermaid diagrams for Project Lou.
 
 ## Core Workflows
 
-- [End-to-End Ledger Workflow](docs/workflows/01_END_TO_END.md)
+- [End-to-End Lou Workflow](docs/workflows/01_END_TO_END.md)
 - [CI/CD Integration Workflow](docs/workflows/02_CICD_INTEGRATION.md)
 - [Repository Intelligence Workflow](docs/workflows/03_REPOSITORY_INTELLIGENCE.md)
 - [AI Remediation Workflow](docs/workflows/04_AGENT_REMEDIATION.md)
@@ -18,7 +18,7 @@ This folder contains copy-paste-ready Mermaid diagrams for Project Ledger.
 
 ## Notes
 
-The core diagrams reflect Ledger's current product thesis:
+The core diagrams reflect Lou's current product thesis:
 
 ```text
 Inspect

@@ -1,10 +1,10 @@
-# Project Ledger
+# Project Lou
 
-Project Ledger is an AI-native software engineering platform that analyzes repositories, detects technical debt and runtime regressions, proposes remediations, verifies fixes through testing and load testing, and eventually learns from deployment outcomes.
+Project Lou is an AI-native software engineering platform that analyzes repositories, detects technical debt and runtime regressions, proposes remediations, verifies fixes through testing and load testing, and eventually learns from deployment outcomes.
 
 ## Core Goal
 
-Ledger should answer five questions:
+Lou should answer five questions:
 
 1. **What changed?**
 2. **What does that change impact?**
@@ -71,7 +71,7 @@ Open remediation PR / GitHub check
 
 The MVP should prove one thing extremely well:
 
-> Ledger can find a problem ordinary CI misses, generate a fix, and prove the fix works.
+> Lou can find a problem ordinary CI misses, generate a fix, and prove the fix works.
 
 ## Core Stack
 
@@ -200,7 +200,7 @@ Use mature tools such as SCIP, SARIF, Semgrep, k6, OpenTelemetry, OPA, GitHub, a
 
 ### Keep product logic outside LangGraph
 
-LangGraph orchestrates. Ledger modules decide.
+LangGraph orchestrates. Lou modules decide.
 
 ```python
 risk = decision_engine.evaluate(change)
@@ -210,7 +210,7 @@ rather than embedding core business rules directly inside agent nodes.
 
 ## Long-Term Vision
 
-The mature version of Ledger becomes a closed-loop software engineering control system:
+The mature version of Lou becomes a closed-loop software engineering control system:
 
 ```text
 Repository
@@ -233,7 +233,7 @@ Learn
    ↺
 ```
 
-Ledger should eventually answer:
+Lou should eventually answer:
 
 - What technical debt should we fix?
 - What will happen if we do nothing?
