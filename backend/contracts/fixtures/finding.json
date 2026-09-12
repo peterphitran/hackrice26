@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "finding_id": "finding_n_plus_one_001",
+  "analysis_run_id": "run_demo_001",
+  "fingerprint": "sha256:example",
+  "source": "lou-comparison",
+  "category": "database-query-regression",
+  "severity": "high",
+  "confidence": 0.91,
+  "phase": "candidate",
+  "title": "Query count increased on order listing",
+  "message": "The candidate run performs one customer query per order.",
+  "file_path": "app/orders/service.py",
+  "symbol_key": "orders.service.list_orders",
+  "metadata": {"query_count_delta": 50}
+}

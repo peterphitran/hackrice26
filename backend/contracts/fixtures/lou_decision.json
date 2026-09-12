@@ -1,0 +1,12 @@
+{
+  "schema_version": "1",
+  "decision_id": "decision_demo_001",
+  "analysis_run_id": "run_demo_001",
+  "debt_risk": 0.82,
+  "remediation_risk": 0.18,
+  "confidence": 0.91,
+  "autonomy_level": 2,
+  "action": "generate_patch",
+  "rationale": {"finding_ids": ["finding_n_plus_one_001"]},
+  "metadata": {}
+}

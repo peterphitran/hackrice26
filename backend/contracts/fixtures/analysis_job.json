@@ -1,0 +1,12 @@
+{
+  "schema_version": "1",
+  "analysis_run_id": "run_demo_001",
+  "repository_id": "repo_store_api",
+  "repository_path": "backend/fixtures/broken-store",
+  "base_commit_sha": "good_commit",
+  "candidate_commit_sha": "n_plus_one_commit",
+  "policy_revision": "1",
+  "toolchain_revision": "1",
+  "verification_plan": {"workloads": ["checkout-load"]},
+  "resource_limits": {"timeout_seconds": 120}
+}

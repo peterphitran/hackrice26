@@ -1,0 +1,143 @@
+"""Stable, version-one data contracts for the Lou hackathon prototype."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class ContractModel(BaseModel):
+    """Base model that makes contract evolution explicit and safe."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["1"] = "1"
+
+
+class AnalysisJob(ContractModel):
+    analysis_run_id: str
+    repository_id: str
+    repository_path: str
+    base_commit_sha: str
+    candidate_commit_sha: str
+    policy_revision: str = "1"
+    toolchain_revision: str = "1"
+    verification_plan: dict[str, Any] = Field(default_factory=dict)
+    resource_limits: dict[str, Any] = Field(default_factory=dict)
+
+
+class RepositoryChange(ContractModel):
+    repository_id: str
+    base_commit_sha: str
+    candidate_commit_sha: str
+    added_files: list[str] = Field(default_factory=list)
+    modified_files: list[str] = Field(default_factory=list)
+    deleted_files: list[str] = Field(default_factory=list)
+    renamed_files: dict[str, str] = Field(default_factory=dict)
+    changed_symbols: list[str] = Field(default_factory=list)
+    completeness: float = Field(ge=0, le=1, default=1)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class RepositoryContext(ContractModel):
+    repository_id: str
+    commit_sha: str
+    changed_symbols: list[str] = Field(default_factory=list)
+    affected_symbols: list[str] = Field(default_factory=list)
+    affected_tests: list[str] = Field(default_factory=list)
+    affected_endpoints: list[str] = Field(default_factory=list)
+    affected_data_dependencies: list[str] = Field(default_factory=list)
+    selected_workload_ids: list[str] = Field(default_factory=list)
+    selection_reasons: dict[str, str] = Field(default_factory=dict)
+    unresolved_relationships: list[str] = Field(default_factory=list)
+    completeness: float = Field(ge=0, le=1, default=0)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkloadSelection(ContractModel):
+    workload_id: str
+    workload_type: Literal["pytest", "k6", "semgrep", "custom"]
+    definition_path: str
+    phase: Literal["baseline", "candidate", "fix"]
+    reason: str
+    confidence: float = Field(ge=0, le=1)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class Finding(ContractModel):
+    finding_id: str
+    analysis_run_id: str
+    fingerprint: str
+    source: str
+    category: str
+    severity: Literal["info", "low", "medium", "high", "critical"]
+    confidence: float = Field(ge=0, le=1)
+    phase: Literal["baseline", "candidate", "fix"]
+    title: str
+    message: str
+    file_path: str | None = None
+    symbol_key: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class Evidence(ContractModel):
+    evidence_id: str
+    analysis_run_id: str
+    phase: Literal["baseline", "candidate", "fix", "comparison"]
+    kind: str
+    source: str
+    collected_at: datetime
+    summary: dict[str, Any] = Field(default_factory=dict)
+    artifact_uri: str | None = None
+    artifact_sha256: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class VerificationResult(ContractModel):
+    verification_run_id: str
+    analysis_run_id: str
+    phase: Literal["baseline", "candidate", "fix"]
+    commit_sha: str
+    status: Literal["passed", "failed", "inconclusive"]
+    workload_id: str | None = None
+    metrics: dict[str, float] = Field(default_factory=dict)
+    findings: list[str] = Field(default_factory=list)
+    evidence_ids: list[str] = Field(default_factory=list)
+    artifact_uri: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentResult(ContractModel):
+    agent_run_id: str
+    analysis_run_id: str
+    status: Literal["succeeded", "failed", "abandoned"]
+    diagnosis: str | None = None
+    plan: str | None = None
+    confidence: float = Field(ge=0, le=1, default=0)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PatchArtifact(ContractModel):
+    patch_id: str
+    analysis_run_id: str
+    base_commit_sha: str
+    patch_sha256: str
+    artifact_uri: str
+    files_changed: int = Field(ge=0)
+    lines_added: int = Field(ge=0)
+    lines_deleted: int = Field(ge=0)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class LouDecision(ContractModel):
+    decision_id: str
+    analysis_run_id: str
+    debt_risk: float = Field(ge=0, le=1)
+    remediation_risk: float | None = Field(default=None, ge=0, le=1)
+    confidence: float = Field(ge=0, le=1)
+    autonomy_level: int = Field(ge=0, le=3)
+    action: Literal["report", "recommend", "generate_patch", "open_pr"]
+    rationale: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
