@@ -1,7 +1,9 @@
+from pytest import MonkeyPatch
+
 from lou.core.settings import get_settings
 
 
-def test_settings_load_local_defaults(monkeypatch) -> None:
+def test_settings_load_local_defaults(monkeypatch: MonkeyPatch) -> None:
     monkeypatch.delenv("LOU_ENVIRONMENT", raising=False)
     get_settings.cache_clear()
 

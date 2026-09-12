@@ -15,6 +15,9 @@ htmlcov/
 !.env.example
 .lou/
 
+# Local specification drafts (not part of implementation pull requests)
+docs/hackathon/specs/
+
 # Operating system and editor files
 .DS_Store
 *.swp
