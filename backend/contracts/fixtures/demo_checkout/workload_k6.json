@@ -1,0 +1,10 @@
+{
+  "schema_version": "1",
+  "workload_id": "checkout-k6",
+  "workload_type": "k6",
+  "definition_path": "backend/fixtures/broken-store/loadtests/checkout.js",
+  "phase": "candidate",
+  "reason": "The changed checkout() symbol reaches POST /checkout under checkout load.",
+  "confidence": 0.96,
+  "metadata": {"endpoint": "POST /checkout", "repetitions": 5}
+}

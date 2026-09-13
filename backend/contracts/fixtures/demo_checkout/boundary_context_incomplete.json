@@ -1,0 +1,15 @@
+{
+  "schema_version": "1",
+  "repository_id": "repo_broken_store",
+  "commit_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "changed_symbols": ["checkout.service.checkout"],
+  "affected_symbols": [],
+  "affected_tests": [],
+  "affected_endpoints": [],
+  "affected_data_dependencies": [],
+  "selected_workload_ids": [],
+  "selection_reasons": {},
+  "unresolved_relationships": ["checkout.service.checkout -> dynamic repository call target unresolved"],
+  "completeness": 0.38,
+  "metadata": {"extractor": "python-ast", "fixture_kind": "low_completeness_boundary"}
+}

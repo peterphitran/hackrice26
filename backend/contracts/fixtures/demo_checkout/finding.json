@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "finding_id": "finding_checkout_n_plus_one_001",
+  "analysis_run_id": "run_sh001_checkout_001",
+  "fingerprint": "checkout.service.checkout:database-query-regression",
+  "source": "baseline-candidate-comparison",
+  "category": "database-query-regression",
+  "severity": "high",
+  "confidence": 0.94,
+  "phase": "candidate",
+  "title": "Checkout loads each line item with a separate query",
+  "message": "Unit tests still pass, but checkout queries grow with cart size and p95 latency rises above the baseline threshold.",
+  "file_path": "checkout/service.py",
+  "symbol_key": "checkout.service.checkout",
+  "metadata": {"query_count_delta": 50, "p95_regression_ratio": 4.67}
+}

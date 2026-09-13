@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "patch_id": "patch_checkout_batch_load_001",
+  "analysis_run_id": "run_sh001_checkout_001",
+  "base_commit_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "patch_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "artifact_uri": "file://.lou/artifacts/run_sh001_checkout_001/patches/fix.diff",
+  "files_changed": 1,
+  "lines_added": 5,
+  "lines_deleted": 4,
+  "metadata": {
+    "expected_fix_commit_sha": "cccccccccccccccccccccccccccccccccccccccc",
+    "expected_change": "Batch-load checkout line items instead of querying once per item.",
+    "fixture_kind": "illustrative_contract_record"
+  }
+}

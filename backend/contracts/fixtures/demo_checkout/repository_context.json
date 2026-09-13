@@ -1,0 +1,18 @@
+{
+  "schema_version": "1",
+  "repository_id": "repo_broken_store",
+  "commit_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "changed_symbols": ["checkout.service.checkout"],
+  "affected_symbols": ["checkout.repository.load_line_items"],
+  "affected_tests": ["tests/test_checkout.py::test_checkout_total"],
+  "affected_endpoints": ["POST /checkout"],
+  "affected_data_dependencies": ["orders", "order_items"],
+  "selected_workload_ids": ["checkout-pytest", "checkout-k6"],
+  "selection_reasons": {
+    "checkout-pytest": "checkout() reaches the checkout total test through the changed service symbol.",
+    "checkout-k6": "checkout() serves POST /checkout, which the checkout load scenario exercises."
+  },
+  "unresolved_relationships": [],
+  "completeness": 0.96,
+  "metadata": {"extractor": "python-ast", "fixture_kind": "illustrative_contract_record"}
+}
