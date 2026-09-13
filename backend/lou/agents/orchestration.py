@@ -63,6 +63,7 @@ class OrchestrationInputs(BaseModel):
     remediation_inputs: RemediationInputs
     policy: AutonomyPolicy
     allowed_repository_root: Path
+    live_sources: tuple[str, ...] = ()
 
     def required_workload_ids(self) -> tuple[str, ...]:
         planned = self.job.verification_plan.get("workloads")
@@ -301,6 +302,7 @@ class RemediationOrchestrator:
                 self.inputs.candidate_verification,
                 self.inputs.workloads,
                 self.inputs.expected_patch,
+                live_sources=self.inputs.live_sources,
             )
             state.current_diagnosis = None
             state.current_patch_response = None
