@@ -9,6 +9,9 @@ from uuid import UUID
 
 RunStatus = Literal["queued", "running", "succeeded", "failed", "cancelled", "inconclusive"]
 TriggerType = Literal["cli", "api", "github_webhook", "fixture"]
+Phase = Literal["baseline", "candidate", "fix"]
+VerificationStatus = Literal["queued", "running", "passed", "failed", "inconclusive"]
+Severity = Literal["info", "low", "medium", "high", "critical"]
 
 
 class PersistenceError(Exception):
@@ -62,3 +65,57 @@ class AnalysisRunRepository(Protocol):
     def transition(self, run_id: UUID, status: RunStatus) -> AnalysisRunView: ...
 
     def mark_failed(self, run_id: UUID, error_code: str, error_message: str) -> AnalysisRunView: ...
+
+
+@dataclass(frozen=True)
+class VerificationRunInput:
+    analysis_run_id: UUID
+    phase: Phase
+    commit_sha: str
+    status: VerificationStatus = "queued"
+    workload_id: UUID | None = None
+    attempt: int = 1
+    metrics: dict[str, object] = field(default_factory=dict)
+    artifact_uri: str | None = None
+    artifact_sha256: str | None = None
+
+
+@dataclass(frozen=True)
+class FindingInput:
+    analysis_run_id: UUID
+    fingerprint: str
+    source: str
+    category: str
+    severity: Severity
+    confidence: float
+    phase: Phase
+    title: str
+    message: str
+    file_path: str | None = None
+    symbol_key: str | None = None
+    metadata: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class EvidenceInput:
+    analysis_run_id: UUID
+    phase: Literal["baseline", "candidate", "fix", "comparison"]
+    kind: str
+    source: str
+    collected_at: datetime
+    finding_id: UUID | None = None
+    summary: dict[str, object] = field(default_factory=dict)
+    artifact_uri: str | None = None
+    artifact_sha256: str | None = None
+
+
+class ResultRepository(Protocol):
+    """Append-only verification, finding, and evidence persistence boundary."""
+
+    def append_verification(self, value: VerificationRunInput) -> UUID: ...
+
+    def complete_verification(self, verification_id: UUID, status: VerificationStatus) -> None: ...
+
+    def add_finding(self, value: FindingInput) -> tuple[UUID, bool]: ...
+
+    def append_evidence(self, value: EvidenceInput) -> UUID: ...

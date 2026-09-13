@@ -1,17 +1,23 @@
 #!/bin/sh
 set -eu
 
-if ! psql --username "$POSTGRES_USER" --dbname postgres --tuples-only --no-align \
-  --command "SELECT 1 FROM pg_roles WHERE rolname = 'lou_app'" | grep -q 1; then
-  psql --username "$POSTGRES_USER" --dbname postgres --set=app_password="$LOU_APP_PASSWORD" \
-    --command "CREATE ROLE lou_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD :'app_password'"
-fi
+psql --username "$POSTGRES_USER" --dbname postgres \
+  --set=app_password="$LOU_APP_PASSWORD" \
+  --set=test_app_password="$LOU_TEST_APP_PASSWORD" <<'SQL'
+SELECT format(
+    'CREATE ROLE lou_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD %L',
+    :'app_password'
+)
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'lou_app')
+\gexec
 
-if ! psql --username "$POSTGRES_USER" --dbname postgres --tuples-only --no-align \
-  --command "SELECT 1 FROM pg_roles WHERE rolname = 'lou_test_app'" | grep -q 1; then
-  psql --username "$POSTGRES_USER" --dbname postgres --set=test_app_password="$LOU_TEST_APP_PASSWORD" \
-    --command "CREATE ROLE lou_test_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD :'test_app_password'"
-fi
+SELECT format(
+    'CREATE ROLE lou_test_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD %L',
+    :'test_app_password'
+)
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'lou_test_app')
+\gexec
+SQL
 
 if ! psql --username "$POSTGRES_USER" --dbname postgres --tuples-only --no-align \
   --command "SELECT 1 FROM pg_database WHERE datname = 'lou_test'" | grep -q 1; then
