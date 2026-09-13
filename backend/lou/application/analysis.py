@@ -11,6 +11,9 @@ from typing import Literal, Protocol
 from contracts import (
     Evidence,
     Finding,
+    ImpactItem,
+    ImpactPrediction,
+    ObservedImpact,
     LouDecision,
     RepositoryChange,
     RepositoryContext,
@@ -97,6 +100,7 @@ class AnalysisResult:
     message: str | None = None
     decision: LouDecision | None = None
     verification_results: tuple[VerificationResult, ...] = ()
+    prediction: ImpactPrediction | None = None
 
 
 class AnalysisStore(Protocol):
@@ -111,6 +115,8 @@ class AnalysisStore(Protocol):
         context: RepositoryContext,
         workloads: tuple[WorkloadSelection, ...],
     ) -> None: ...
+
+    def record_prediction(self, run_id: str, prediction: ImpactPrediction) -> None: ...
 
     def record_verification(self, run_id: str, bundle: VerificationBundle) -> None: ...
 
@@ -203,11 +209,19 @@ class AnalysisApplicationService:
 
         stages = ["validate", "initialize"]
         verification_results: list[VerificationResult] = []
+        prediction: ImpactPrediction | None = None
         try:
             change, context = self._intelligence.inspect(request, run_id)
             stages.append("inspect")
             workloads = self._workload_selector.select(context)
             stages.append("select")
+            prediction_value = context.metadata.get("impact_prediction")
+            if isinstance(prediction_value, dict):
+                prediction = ImpactPrediction.model_validate(prediction_value)
+                record_prediction = getattr(self._store, "record_prediction", None)
+                if record_prediction is not None:
+                    record_prediction(run_id, prediction)
+                stages.append("predict")
             self._store.record_context(run_id, change, context, workloads)
             if not workloads:
                 return self._finish(
@@ -215,6 +229,7 @@ class AnalysisApplicationService:
                     "inconclusive",
                     stages,
                     "No runnable workload was selected.",
+                    prediction=prediction,
                 )
 
             baseline = self._verification.measure_baseline(request, run_id, workloads)
@@ -227,9 +242,21 @@ class AnalysisApplicationService:
                     [*stages, "verify"],
                     "Baseline verification did not produce a comparable measurement.",
                     verification_results,
+                    prediction=prediction,
                 )
 
             candidate = self._verification.measure_candidate(request, run_id, workloads, baseline)
+            if prediction is not None:
+                observed = _observed_from_context(run_id, context, candidate)
+                from lou.prediction.evaluate import evaluate_impact
+                evaluation = evaluate_impact(prediction, observed)
+                candidate = VerificationBundle(
+                    candidate.result.model_copy(update={"metadata": {
+                        **candidate.result.metadata,
+                        "observed_impact": observed.model_dump(mode="json"),
+                        "impact_evaluation": evaluation.model_dump(mode="json"),
+                    }}), candidate.findings, candidate.evidence,
+                )
             self._store.record_verification(run_id, candidate)
             verification_results.append(candidate.result)
             stages.append("verify")
@@ -240,6 +267,7 @@ class AnalysisApplicationService:
                     stages,
                     "Candidate verification did not produce a comparable measurement.",
                     verification_results,
+                    prediction=prediction,
                 )
 
             final_decision = self._decision.decide(request, run_id, baseline, candidate, context)
@@ -252,6 +280,7 @@ class AnalysisApplicationService:
                 None,
                 verification_results,
                 final_decision,
+                prediction=prediction,
             )
         except Exception as error:
             return self._finish(
@@ -272,6 +301,7 @@ class AnalysisApplicationService:
         verification_results: list[VerificationResult] | None = None,
         decision: LouDecision | None = None,
         error_name: str | None = None,
+        prediction: ImpactPrediction | None = None,
     ) -> AnalysisResult:
         self._store.finish(run_id, status, message)
         return AnalysisResult(
@@ -282,6 +312,7 @@ class AnalysisApplicationService:
             error_name or message,
             decision,
             tuple(verification_results or ()),
+            prediction,
         )
 
     @staticmethod
@@ -307,3 +338,12 @@ class AnalysisApplicationService:
     def _force_key(request: AnalysisRequest) -> str:
         assert request.force_token is not None
         return f"{request.deduplication_key()}-force-{request.force_token}"
+
+
+def _observed_from_context(run_id: str, context: RepositoryContext, candidate: VerificationBundle) -> ObservedImpact:
+    items = [ImpactItem(kind="symbol", key=key, score=1, reason="observed in graph context") for key in context.affected_symbols]
+    items.extend(ImpactItem(kind="service", key=key, score=1, reason="observed in graph context") for key in context.affected_endpoints + context.affected_data_dependencies)
+    items.extend(ImpactItem(kind="workload", key=key, score=1, reason="executed") for key in context.selected_workload_ids)
+    if candidate.result.metadata.get("classification") == "runtime_regression":
+        items.append(ImpactItem(kind="runtime_path", key="candidate:runtime_regression", score=1, reason="observed by differential verification"))
+    return ObservedImpact(analysis_run_id=run_id, items=tuple(sorted(items, key=lambda item: (item.kind, item.key))), source_revisions=("m3-verification",))

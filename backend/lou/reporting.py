@@ -17,6 +17,7 @@ from lou.persistence.models import (
     EvidenceRecord,
     FindingRecord,
     LouDecisionRecord,
+    PredictionRecord,
     RepositoryRecord,
     VerificationRunRecord,
     WorkloadRecord,
@@ -60,6 +61,17 @@ class EvidenceReport:
         for workload in _list(self.payload["workloads"]):
             item = _mapping(workload)
             lines.append(f"- `{item['workload_id']}` ({item['workload_type']}): {item['reason']}")
+        prediction = self.payload.get("prediction")
+        if prediction:
+            item = _mapping(prediction)
+            lines.extend(["", "## Impact Prediction", ""])
+            lines.append(f"- Confidence: `{item.get('confidence')}`; revision: `{item.get('predictor_revision')}`")
+            lines.append(f"- Predicted items: `{len(_list(item.get('items', [])))}`")
+            omitted = _list(item.get("omitted_context", []))
+            if omitted:
+                lines.append(f"- Omitted context: {', '.join(str(value) for value in omitted)}")
+        lines.extend(["", "## Observed Verification", ""])
+        lines.append("- Execution evidence below is observed verification, not prediction.")
         lines.extend(["", "## Measurements", ""])
         for verification in _list(self.payload["verification_runs"]):
             item = _mapping(verification)
@@ -166,6 +178,9 @@ class EvidenceReportReader:
             decision = session.scalar(
                 select(LouDecisionRecord).where(LouDecisionRecord.analysis_run_id == run.id)
             )
+            prediction = session.scalar(
+                select(PredictionRecord).where(PredictionRecord.analysis_run_id == run.id)
+            )
         classifications = _classifications(evidence)
         payload: dict[str, object] = {
             "schema_version": "1",
@@ -180,6 +195,8 @@ class EvidenceReportReader:
             },
             "repository": {"name": repository.repository_name, "provider": repository.provider},
             "context": _context(evidence),
+            "prediction": dict(prediction.payload) if prediction is not None else None,
+            "observed": _observed(evidence),
             "workloads": [_workload(item) for item in workloads],
             "verification_runs": [
                 _verification(item, workloads, classifications) for item in verification_runs
@@ -198,6 +215,10 @@ def _context(evidence: list[EvidenceRecord]) -> dict[str, object]:
         return {}
     value = record.summary.get("context", {})
     return value if isinstance(value, dict) else {}
+
+
+def _observed(evidence: list[EvidenceRecord]) -> dict[str, object]:
+    return {"evidence": [item.summary for item in evidence if item.kind != "impact-prediction"]}
 
 
 def _workload(record: WorkloadRecord) -> dict[str, object]:

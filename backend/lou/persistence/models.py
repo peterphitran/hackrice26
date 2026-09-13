@@ -212,6 +212,29 @@ class EvidenceRecord(Base):
     )
 
 
+class PredictionRecord(Base):
+    """Immutable prediction snapshot captured before verification."""
+
+    __tablename__ = "predictions"
+    __table_args__ = (
+        UniqueConstraint("analysis_run_id", "predictor_revision", name="prediction_run_revision"),
+        {"schema": "lou"},
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    analysis_run_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("lou.analysis_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    predictor_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    predictor_revision: Mapped[str] = mapped_column(String(100), nullable=False)
+    repository_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    base_commit_sha: Mapped[str] = mapped_column(String(255), nullable=False)
+    candidate_commit_sha: Mapped[str] = mapped_column(String(255), nullable=False)
+    confidence: Mapped[float] = mapped_column(nullable=False)
+    payload: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class LouDecisionRecord(Base):
     """One durable deterministic decision for an analysis run."""
 

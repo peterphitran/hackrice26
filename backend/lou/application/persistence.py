@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from contracts import LouDecision, RepositoryChange, RepositoryContext, WorkloadSelection
+from contracts import ImpactPrediction, LouDecision, RepositoryChange, RepositoryContext, WorkloadSelection
 from lou.application.analysis import (
     AnalysisRequest,
     AnalysisStatus,
@@ -27,7 +27,7 @@ from lou.persistence.interfaces import (
     PersistenceError,
     VerificationRunInput,
 )
-from lou.persistence.models import RepositoryRecord, WorkloadRecord
+from lou.persistence.models import PredictionRecord, RepositoryRecord, WorkloadRecord
 from lou.persistence.repositories import (
     SqlAlchemyAnalysisRunRepository,
     SqlAlchemyDecisionRepository,
@@ -91,6 +91,34 @@ class SqlAlchemyAnalysisStore:
                 },
             )
         )
+
+    def record_prediction(self, run_id: str, prediction: ImpactPrediction) -> None:
+        if prediction.analysis_run_id != run_id:
+            raise PersistenceError("prediction does not belong to the analysis run")
+        payload = cast(dict[str, object], prediction.model_dump(mode="json"))
+        with self._session_factory() as session:
+            existing = session.scalar(select(PredictionRecord).where(
+                PredictionRecord.analysis_run_id == _uuid(run_id),
+                PredictionRecord.predictor_revision == prediction.predictor_revision,
+            ))
+            if existing is not None:
+                if existing.payload != payload:
+                    raise PersistenceError("prediction revision conflicts with existing snapshot")
+                return
+        self._results.append_evidence(EvidenceInput(
+            analysis_run_id=_uuid(run_id), phase="comparison", kind="impact-prediction",
+            source=prediction.predictor_name,
+            contract_id=f"prediction:{run_id}:{prediction.predictor_revision}",
+            collected_at=_utc_now(), summary=payload,
+        ))
+        with self._session_factory.begin() as session:
+            session.add(PredictionRecord(
+                analysis_run_id=_uuid(run_id), predictor_name=prediction.predictor_name,
+                predictor_revision=prediction.predictor_revision, repository_id=prediction.repository_id,
+                base_commit_sha=prediction.base_commit_sha, candidate_commit_sha=prediction.candidate_commit_sha,
+                confidence=prediction.confidence,
+                payload=payload,
+            ))
 
     def record_verification(self, run_id: str, bundle: VerificationBundle) -> None:
         analysis_run_id = _uuid(run_id)

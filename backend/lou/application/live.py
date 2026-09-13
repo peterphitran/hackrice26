@@ -34,6 +34,7 @@ from lou.repository import (
 from lou.repository import fixture_commands as fixture_commands
 from lou.repository import fixture_workloads as fixture_workloads
 from lou.repository.symbols import extract_changed_symbols
+from lou.prediction import predict_impact
 from lou.scoring import DebtInputs, RemediationInputs
 from lou.verification import PhaseObservations, compare_candidate, disposable_worktree
 
@@ -92,6 +93,10 @@ class FixtureRepositoryIntelligence:
             context,
             fallback_workload_ids=fallback_workload_ids,
         )
+        prediction = predict_impact(
+            analysis_run_id=run_id, change=change, snapshot=snapshot, traversal=traversal,
+            workloads=selected, repository_root=request.repository_path,
+        )
         context = context.model_copy(
             update={
                 "selected_workload_ids": [item.workload_id for item in selected],
@@ -105,6 +110,7 @@ class FixtureRepositoryIntelligence:
                     "analysis_run_id": run_id,
                     "graph_artifact_uri": snapshot.artifact_uri,
                     "fallback_workload_ids": list(fallback_workload_ids),
+                    "impact_prediction": prediction.model_dump(mode="json"),
                 },
             }
         )

@@ -56,6 +56,57 @@ class RepositoryContext(ContractModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class ImpactItem(ContractModel):
+    kind: Literal["symbol", "relationship", "service", "workload", "runtime_path"]
+    key: str
+    score: float = Field(ge=0, le=1)
+    reason: str
+    provenance: list[str] = Field(default_factory=list)
+
+
+class PredictionFeatures(ContractModel):
+    reachability: float | None = Field(default=None, ge=0, le=1)
+    centrality: float | None = Field(default=None, ge=0, le=1)
+    changed_file_type: float | None = Field(default=None, ge=0, le=1)
+    history_churn: float | None = Field(default=None, ge=0, le=1)
+    coverage_signal: float | None = Field(default=None, ge=0, le=1)
+    ownership_signal: float | None = Field(default=None, ge=0, le=1)
+
+
+class ImpactPrediction(ContractModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    analysis_run_id: str
+    repository_id: str
+    base_commit_sha: str
+    candidate_commit_sha: str
+    items: tuple[ImpactItem, ...] = ()
+    required_workload_ids: tuple[str, ...] = ()
+    risk_signals: dict[str, float] = Field(default_factory=dict)
+    features: PredictionFeatures = Field(default_factory=PredictionFeatures)
+    confidence: float = Field(ge=0, le=1)
+    omitted_context: tuple[str, ...] = ()
+    predictor_name: str = "deterministic-heuristic"
+    predictor_revision: str = "impact-v1"
+
+
+class ObservedImpact(ContractModel):
+    analysis_run_id: str
+    items: tuple[ImpactItem, ...] = ()
+    source_revisions: tuple[str, ...] = ()
+
+
+class ImpactEvaluation(ContractModel):
+    analysis_run_id: str
+    repository_id: str
+    predictor_revision: str
+    labels: dict[str, Literal["true_positive", "false_positive", "false_negative"]] = Field(default_factory=dict)
+    precision: float = Field(ge=0, le=1)
+    recall: float = Field(ge=0, le=1)
+    false_negative_rate: float = Field(ge=0, le=1)
+    calibration: dict[str, float] = Field(default_factory=dict)
+
+
 class WorkloadSelection(ContractModel):
     workload_id: str
     workload_type: Literal["pytest", "k6", "semgrep", "custom"]

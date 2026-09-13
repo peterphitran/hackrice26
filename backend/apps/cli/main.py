@@ -167,6 +167,8 @@ def _summary(result: AnalysisResult) -> dict[str, object]:
         "status": result.status,
         "reused": result.reused,
         "stages": list(result.stages),
+        "prediction": result.prediction.model_dump(mode="json") if result.prediction else None,
+        "prediction": result.prediction.model_dump(mode="json") if result.prediction else None,
         "message": result.message,
         "candidate": (
             {
