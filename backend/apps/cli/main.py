@@ -14,6 +14,8 @@ from lou.application import AnalysisRequest, AnalysisResult, build_fixture_servi
 from lou.core.errors import LouError
 from lou.core.settings import get_settings
 from lou.core.version import APP_VERSION
+from lou.persistence.database import create_session_factory
+from lou.reporting import EvidenceReportReader, ReportError
 from lou.repository import resolve_repository_revisions
 
 app = typer.Typer(help="Local-first evidence-driven software maintenance.", no_args_is_help=True)
@@ -97,6 +99,33 @@ def analyze(
         if summary["message"]:
             console.print(f"message: {summary['message']}")
     raise typer.Exit(code=_exit_code(result, ci))
+
+
+@app.command()
+def report(
+    run: str = typer.Option(..., "--run", help="Persisted analysis run ID."),
+    output: str = typer.Option("markdown", "--output", help="markdown or json"),
+    file: Path | None = typer.Option(None, "--file", help="Optional report output file."),
+) -> None:
+    """Render a saved evidence report without rerunning analysis."""
+
+    if output not in {"markdown", "json"}:
+        _input_error("--output must be either markdown or json")
+    settings = get_settings()
+    try:
+        report_document = EvidenceReportReader(
+            create_session_factory(settings), settings.artifact_root
+        ).read(run)
+        rendered = (
+            report_document.render_json() if output == "json" else report_document.render_markdown()
+        )
+        if file is not None:
+            file.write_text(rendered, encoding="utf-8")
+        else:
+            console.print(rendered, end="")
+    except (OSError, ReportError):
+        console.print("report unavailable; review the run ID and local artifacts")
+        raise typer.Exit(code=3) from None
 
 
 def _build_service() -> Any:

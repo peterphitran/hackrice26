@@ -17,6 +17,7 @@ from lou.application.live import (
     fixture_commands,
     fixture_workloads,
 )
+from lou.application.remediation import PersistedFixVerifier, build_remediation_orchestrator
 
 __all__ = [
     "AnalysisApplicationService",
@@ -27,9 +28,11 @@ __all__ = [
     "FixtureRepositoryIntelligence",
     "FixtureVerificationAdapter",
     "FixtureWorkloadSelector",
+    "PersistedFixVerifier",
     "RunSnapshot",
     "VerificationBundle",
     "build_fixture_service",
+    "build_remediation_orchestrator",
     "fixture_commands",
     "fixture_workloads",
 ]

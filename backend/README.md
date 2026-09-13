@@ -61,6 +61,9 @@ lou analyze \
   --base good \
   --candidate n-plus-one \
   --output json
+
+# Use the returned run ID to render persisted evidence later.
+lou report --run <analysis-run-id> --output markdown
 ```
 
 The expected candidate summary has a `query_count_delta` of `49` (2 baseline queries versus 51
@@ -76,6 +79,33 @@ LOU_TEST_DATABASE_URL=postgresql+psycopg://lou_migrator:lou_migrator@127.0.0.1:5
 LOU_FIXTURE_DATABASE_URL=postgresql://lou_migrator:lou_migrator@postgres:5432/lou_test \
 python -m pytest -m integration tests/integration/application/test_live_fixture.py
 ```
+
+## Clean-clone demo rehearsal
+
+Use this rehearsal before a presentation or after cloning on another machine. It
+creates an isolated Postgres container on port `55432`, runs migrations, seeds a
+temporary copy of the fixture repository, and invokes the same application
+composition used by `lou analyze`. It leaves the database container running so
+you can inspect its evidence; remove it when finished.
+
+```bash
+cd backend
+python -m lou.verification.int002
+
+# Optional cleanup after inspecting the persisted run and artifacts.
+docker compose -p lou-int002 -f infra/compose.yaml down -v
+```
+
+Success prints a `__LOU_INT002_RESULT__` line with `"status": "succeeded"`,
+plus the measured `queries 2 -> 51` result. The controller proves that graph
+selection, equivalent baseline/candidate workloads, PostgreSQL persistence, and
+the evidence report path work together. It requires Docker Desktop, Python 3.11+
+and the dependencies from the setup section; it does not depend on a cloud API.
+
+For a second-machine check, repeat the setup and this exact command from a fresh
+clone. Record the resulting run ID and commit SHA in the team demo notes. A
+different verdict is a failure to investigate, not a result to present as a
+regression.
 
 ## PostgreSQL (optional until PF-002)
 
