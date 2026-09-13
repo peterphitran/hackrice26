@@ -105,6 +105,17 @@ def _run_case(
                 f"DECISION [LIVE rules + RECORDED inputs] A{decision.autonomy_level} "
                 f"{decision.action}; {state.termination_reason}"
             )
+            m5 = decision.metadata.get("m5")
+            if isinstance(m5, dict):
+                value = m5.get("expected_value")
+                value_status = value.get("status") if isinstance(value, dict) else "unknown"
+                emit(
+                    f"  M5 policy {m5.get('evaluated_policy_revision')}; "
+                    f"organization ceiling A{m5.get('organization_ceiling')}; "
+                    f"expected value {value_status}"
+                )
+                for reason in m5.get("denied_reasons", []):
+                    emit(f"  M5 LIMIT {reason}")
             for gate in decision.rationale["gates"]:
                 emit(f"  {'PASS' if gate['passed'] else 'FAIL'} {gate['code']}")
             for failure in decision.rationale["decline_reasons"]:
@@ -114,7 +125,7 @@ def _run_case(
     verdicts = {
         "delete-test": "REJECTED — patch deletes a checkout test",
         "wrong-hash": "DECLINED — verified patch hash differs from proposal",
-        "success": "RECORDED FIX PASSED — hypothetical A3; no PR opened",
+        "success": "RECORDED FIX PASSED — M5 permits a local patch; no PR opened",
     }
     emit(f"VERDICT: {verdicts[case]}")
     return state

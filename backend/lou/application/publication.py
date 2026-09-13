@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from contracts import PatchArtifact, PublicationPlan, PublicationResult
 from lou.agents.orchestration import OrchestrationState
+from lou.decision.m5 import publication_denial_reasons
 from lou.persistence.models import (
     AgentRunRecord,
     AnalysisRunRecord,
@@ -66,7 +67,7 @@ class PublicationService:
     report_reader: EvidenceReportReader
 
     def dry_run(self, agent_run_id: UUID) -> PublicationResult:
-        plan, _, dry_run_allowed, _ = self._plan(agent_run_id)
+        plan, _, dry_run_allowed, _, _ = self._plan(agent_run_id)
         if not dry_run_allowed:
             return self._save(plan, "denied", message="Verified patch evidence is unavailable.")
         return self._save(plan, "dry_run", message="No network action was requested.")
@@ -80,10 +81,12 @@ class PublicationService:
     ) -> PublicationResult:
         if acknowledgement != "PUBLISH_VERIFIED_REMEDIATION":
             raise PublicationError("explicit publication acknowledgement is required")
-        plan, patch_diff, _, publish_allowed = self._plan(agent_run_id)
+        plan, patch_diff, _, publish_allowed, denial_reasons = self._plan(agent_run_id)
         if not publish_allowed:
             return self._save(
-                plan, "denied", message="Verified A3 publication evidence is unavailable."
+                plan,
+                "denied",
+                message="M5 publication denied: " + ", ".join(denial_reasons),
             )
         existing = self._existing(plan.publication_plan_id)
         if existing is not None:
@@ -94,7 +97,7 @@ class PublicationService:
             return self._save(plan, "failed", message="Trusted publisher failed safely.")
         return self._save(plan, "published", provider_reference=reference)
 
-    def _plan(self, agent_run_id: UUID) -> tuple[PublicationPlan, str, bool, bool]:
+    def _plan(self, agent_run_id: UUID) -> tuple[PublicationPlan, str, bool, bool, tuple[str, ...]]:
         with self.session_factory() as session:
             run = session.get(AgentRunRecord, agent_run_id)
             if run is None:
@@ -117,6 +120,40 @@ class PublicationService:
         )
         patch_diff = patch_response.patch_diff if patch_response is not None else None
         decision = state.decision
+        denial_reasons = list(
+            publication_denial_reasons(
+                decision,
+                analysis_run_id=str(run.analysis_run_id),
+                policy_revision=analysis.policy_revision,
+            )
+            if decision is not None
+            else ("m5_decision_missing_or_invalid",)
+        )
+        if run.policy_revision != analysis.policy_revision:
+            denial_reasons.append("policy_revision_mismatch")
+        if state.termination_reason != "verified" or run.status != "succeeded":
+            denial_reasons.append("remediation_not_verified")
+        if (
+            patch is None
+            or patch_diff is None
+            or (hashlib.sha256(patch_diff.encode("utf-8")).hexdigest() != patch.patch_sha256)
+        ):
+            denial_reasons.append("patch_identity_mismatch")
+        if (
+            state.current_validation is None
+            or not state.current_validation.valid
+            or bool(state.current_validation.reasons)
+        ):
+            denial_reasons.append("patch_validation_missing")
+        if not state.current_verification_results or any(
+            result.status != "passed"
+            or result.phase != "fix"
+            or result.analysis_run_id != str(run.analysis_run_id)
+            or result.metadata.get("patch_sha256") != (patch.patch_sha256 if patch else None)
+            for result in state.current_verification_results
+        ):
+            denial_reasons.append("fix_verification_missing_or_failed")
+        denial_reasons = list(dict.fromkeys(denial_reasons))
         evidence_hash = hashlib.sha256(
             self.report_reader.read(str(run.analysis_run_id)).render_json().encode("utf-8")
         ).hexdigest()
@@ -136,6 +173,7 @@ class PublicationService:
             ),
             patch_sha256=patch.patch_sha256 if patch is not None else "0" * 64,
             evidence_report_sha256=evidence_hash,
+            metadata={"m5_publish_denial_reasons": denial_reasons},
         )
         dry_run_allowed = (
             state.termination_reason == "verified"
@@ -143,11 +181,8 @@ class PublicationService:
             and patch is not None
             and patch_diff is not None
         )
-        publish_allowed = (
-            dry_run_allowed and decision is not None and decision.action == "open_pr"
-            and decision.autonomy_level >= 3
-        )
-        return plan, patch_diff or "", dry_run_allowed, publish_allowed
+        publish_allowed = dry_run_allowed and not denial_reasons
+        return plan, patch_diff or "", dry_run_allowed, publish_allowed, tuple(denial_reasons)
 
     def _existing(self, plan_id: str) -> PublicationResult | None:
         with self.session_factory() as session:

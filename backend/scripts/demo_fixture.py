@@ -167,6 +167,6 @@ def _inputs(
         expected_patch=patch,
         debt_inputs=DebtInputs.model_validate(scoring["debt"]),
         remediation_inputs=RemediationInputs.model_validate(scoring["remediation"]),
-        policy=AutonomyPolicy(max_autonomy=3),
+        policy=AutonomyPolicy(revision="1", max_autonomy=3),
         allowed_repository_root=repo,
     )

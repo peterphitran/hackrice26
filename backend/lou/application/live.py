@@ -11,17 +11,21 @@ from typing import Any, Literal, Protocol, cast
 
 from contracts import (
     AnalysisJob,
+    AutonomyDecision,
+    CostEstimates,
     Evidence,
     LouDecision,
     RepositoryChange,
     RepositoryContext,
+    RiskSignals,
     VerificationResult,
     WorkloadSelection,
 )
 from lou.application.analysis import AnalysisApplicationService, AnalysisRequest, VerificationBundle
 from lou.core.settings import Settings
-from lou.decision.autonomy import decide_autonomy
+from lou.decision import decide_m5
 from lou.policies import AutonomyPolicy
+from lou.policies.engine import LocalPolicy
 from lou.prediction import predict_impact
 from lou.repository import (
     REGISTRY_REVISION,
@@ -235,7 +239,7 @@ class FixtureVerificationAdapter:
 class FixtureDecisionAdapter:
     """Apply deterministic report/recommend policy to measured fixture evidence."""
 
-    policy: AutonomyPolicy = AutonomyPolicy(revision="fixture-local-v1", max_autonomy=1)
+    policy: AutonomyPolicy = AutonomyPolicy(revision="1", max_autonomy=1)
 
     def decide(
         self,
@@ -257,14 +261,19 @@ class FixtureDecisionAdapter:
             for name, observed in _observed_debt_inputs(context).items():
                 debt_values.setdefault(name, observed)
         remediation_values = _configured_values(request.configuration, "remediation_inputs")
-        decision = decide_autonomy(
+        risk_values = _configured_values(request.configuration, "risk_signals")
+        cost_values = _configured_values(request.configuration, "cost_estimates")
+        decision = decide_m5(
             decision_id=f"decision_{run_id}",
             analysis_run_id=run_id,
             debt_inputs=DebtInputs.model_validate(debt_values),
             remediation_inputs=(
                 RemediationInputs.model_validate(remediation_values) if remediation_values else None
             ),
-            policy=AutonomyPolicy(
+            risk_signals=RiskSignals.model_validate(risk_values) if risk_values else None,
+            cost_estimates=CostEstimates.model_validate(cost_values) if cost_values else None,
+            policy_revision=request.policy_revision,
+            policy_evaluator=LocalPolicy(
                 revision=self.policy.revision, max_autonomy=min(self.policy.max_autonomy, 1)
             ),
             candidate_regression=candidate.result,
@@ -274,7 +283,29 @@ class FixtureDecisionAdapter:
             rationale["composition_cap_reason"] = (
                 "Only a measured runtime regression may receive a recommendation in this slice."
             )
-            decision = decision.model_copy(update={"action": "report", "autonomy_level": 0})
+            rationale["summary"] = "A0: report."
+            rationale["reasons"] = [*rationale.get("reasons", []), "no_measured_runtime_regression"]
+            rationale["m5_reasons"] = [
+                *rationale.get("m5_reasons", []),
+                "no_measured_runtime_regression",
+            ]
+            rationale["declined"] = True
+            m5 = AutonomyDecision.model_validate(decision.metadata["m5"])
+            capped = AutonomyDecision.model_validate(
+                {
+                    **m5.model_dump(mode="json"),
+                    "permitted_level": 0,
+                    "action": "report",
+                    "denied_reasons": [*m5.denied_reasons, "no_measured_runtime_regression"],
+                }
+            )
+            decision = decision.model_copy(
+                update={
+                    "action": "report",
+                    "autonomy_level": 0,
+                    "metadata": {**decision.metadata, "m5": capped.model_dump(mode="json")},
+                }
+            )
         rationale["outcome_classification"] = classification
         rationale["outcome_rule"] = (
             "Measured regression meets the local recommendation policy."

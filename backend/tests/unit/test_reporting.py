@@ -145,6 +145,16 @@ def test_report_reads_persisted_records_and_verifies_relative_artifacts(tmp_path
                 confidence=0.91,
                 autonomy_level=0,
                 rationale={"outcome": "runtime_regression"},
+                details={
+                    "m5": {
+                        "expected_value": {"status": "insufficient_evidence", "horizon_days": 30},
+                        "requested_policy_revision": "1",
+                        "evaluated_policy_revision": "1",
+                        "organization_ceiling": 1,
+                        "product_ceiling": 3,
+                        "denied_reasons": ["expected_value_unknown"],
+                    }
+                },
             )
         ],
     }
@@ -159,6 +169,8 @@ def test_report_reads_persisted_records_and_verifies_relative_artifacts(tmp_path
     assert "Query count increased" in report.render_markdown()
     assert "## Runtime Correlation" in report.render_markdown()
     assert "store.app.Store.checkout" in report.render_markdown()
+    assert "M5 expected value" in report.render_markdown()
+    assert "expected_value_unknown" in report.render_markdown()
 
 
 def test_report_rejects_missing_or_tampered_artifacts(tmp_path: Path) -> None:

@@ -13,18 +13,21 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from contracts import (
     AnalysisJob,
+    CostEstimates,
     Finding,
     LouDecision,
     PatchArtifact,
     RepositoryContext,
+    RiskSignals,
     VerificationResult,
     WorkloadSelection,
 )
 from lou.agents.context import AgentContextBundle, RepositoryText, build_context_bundle
 from lou.agents.patch_validation import PatchValidationResult, validate_patch
 from lou.agents.provider import AgentAdapter, AgentProvider, ProviderRequest, ProviderResponse
-from lou.decision import decide_autonomy
+from lou.decision import decide_autonomy, decide_m5
 from lou.policies import AutonomyPolicy
+from lou.policies.engine import LocalPolicy, PolicyEvaluator
 from lou.scoring import DebtInputs, RemediationInputs
 
 
@@ -94,6 +97,8 @@ class OrchestrationInputs(BaseModel):
     expected_patch: PatchArtifact
     debt_inputs: DebtInputs
     remediation_inputs: RemediationInputs
+    risk_signals: RiskSignals | None = None
+    cost_estimates: CostEstimates | None = None
     policy: AutonomyPolicy
     allowed_repository_root: Path
     live_sources: tuple[str, ...] = ()
@@ -226,12 +231,16 @@ class RemediationOrchestrator:
         *,
         verifier: Verifier,
         provider: AgentProvider | None = None,
+        policy_evaluator: PolicyEvaluator | None = None,
         clock: Callable[[], float] = time.time,
     ) -> None:
         inputs.required_workload_ids()
         self.inputs = inputs
         self.provider = AgentAdapter(provider)
         self.verifier = verifier
+        self.policy_evaluator = policy_evaluator or LocalPolicy(
+            revision=inputs.policy.revision, max_autonomy=inputs.policy.max_autonomy
+        )
         self.clock = clock
 
     def start(self, limits: OrchestrationLimits | None = None) -> OrchestrationState:
@@ -284,13 +293,30 @@ class RemediationOrchestrator:
         )
         commits = {result.commit_sha for result in state.current_verification_results}
         fix_commit = next(iter(commits)) if len(commits) == 1 else None
-        return decide_autonomy(
-            decision_id=f"{state.analysis_run_id}:decision:{state.attempt_count}"
-            + (":final" if final else ":attempt"),
+        decision_id = f"{state.analysis_run_id}:decision:{state.attempt_count}" + (
+            ":final" if final else ":attempt"
+        )
+        if not accepted and not final:
+            # This is an internal retry decision; there is no patch to assess or publish yet.
+            return decide_autonomy(
+                decision_id=decision_id,
+                analysis_run_id=state.analysis_run_id,
+                debt_inputs=self.inputs.debt_inputs,
+                remediation_inputs=self.inputs.remediation_inputs,
+                policy=self.inputs.policy,
+                analysis_job=self.inputs.job,
+                required_workload_ids=self.inputs.required_workload_ids(),
+                candidate_regression=self.inputs.candidate_verification,
+            )
+        return decide_m5(
+            decision_id=decision_id,
             analysis_run_id=state.analysis_run_id,
             debt_inputs=self.inputs.debt_inputs,
             remediation_inputs=self.inputs.remediation_inputs,
-            policy=self.inputs.policy,
+            risk_signals=self.inputs.risk_signals,
+            cost_estimates=self.inputs.cost_estimates,
+            policy_revision=self.inputs.job.policy_revision,
+            policy_evaluator=self.policy_evaluator,
             patch=patch,
             patch_content=patch_content,
             analysis_job=self.inputs.job,

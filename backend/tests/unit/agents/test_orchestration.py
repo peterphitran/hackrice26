@@ -31,6 +31,7 @@ from lou.agents import (
 from lou.agents.orchestration import _candidate_source
 from lou.agents.provider import ProviderRequest, ProviderResponse
 from lou.policies import AutonomyPolicy
+from lou.policies.engine import PolicyInput, PolicyResult
 from lou.scoring import DebtInputs, RemediationInputs
 
 FIXTURES = Path(__file__).parents[3] / "contracts" / "fixtures" / "demo_checkout"
@@ -123,7 +124,7 @@ def scenario(tmp_path: Path) -> tuple[OrchestrationInputs, str]:
             context_completeness=1.0,
             evidence_confidence=1.0,
         ),
-        policy=AutonomyPolicy(max_autonomy=3),
+        policy=AutonomyPolicy(revision="1", max_autonomy=3),
         allowed_repository_root=repo,
     )
     return inputs, fix_sha
@@ -185,13 +186,34 @@ def test_full_run_uses_independent_verdict_and_real_decision(
     assert state.termination_reason == "verified"
     assert state.attempt_count == 1
     assert state.current_validation is not None and state.current_validation.valid
-    assert state.decision is not None and state.decision.action == "open_pr"
+    assert state.decision is not None and state.decision.action == "generate_patch"
+    assert state.decision.metadata["m5"]["expected_value"]["status"] == "insufficient_evidence"
     assert [result.status for result in state.verification_results] == ["passed", "passed"]
     assert state.decision.metadata["verification_results"] == [
         result.model_dump(mode="json") for result in state.verification_results
     ]
     assert len(verifier.calls) == 2
     assert all(call.validation.valid for call in verifier.calls)
+
+
+def test_organizational_deny_stops_agent_after_verification(
+    scenario: tuple[OrchestrationInputs, str],
+) -> None:
+    class DenyAll:
+        def evaluate(self, _: PolicyInput) -> PolicyResult:
+            return PolicyResult(
+                revision="1", max_autonomy=5, denied=True, deny_reasons=("organization_denied",)
+            )
+
+    inputs, fix_sha = scenario
+    state = RemediationOrchestrator(
+        inputs,
+        verifier=DeterministicMockVerifier(fix_commit_sha=fix_sha),
+        policy_evaluator=DenyAll(),
+    ).run()
+    assert state.termination_reason == "decision_declined"
+    assert state.decision is not None and state.decision.autonomy_level == 0
+    assert "organization_denied" in state.decision.metadata["m5"]["denied_reasons"]
 
 
 def test_max_attempts_stops_failed_verification(
