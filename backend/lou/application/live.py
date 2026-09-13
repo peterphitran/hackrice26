@@ -27,11 +27,11 @@ from lou.repository import (
     TraversalLimits,
     build_repository_context,
     build_repository_graph,
-    fixture_commands,
     parse_repository_changes,
     select_fixture_workloads,
     traverse_repository_impact,
 )
+from lou.repository import fixture_commands as fixture_commands
 from lou.repository import fixture_workloads as fixture_workloads
 from lou.repository.symbols import extract_changed_symbols
 from lou.scoring import DebtInputs, RemediationInputs
