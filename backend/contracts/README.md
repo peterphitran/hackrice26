@@ -14,6 +14,7 @@ allowed values, ownership, and examples.
 ## Fixtures
 
 The JSON files in `fixtures/` are the hand-off examples for parallel work.
+There is one valid version-one fixture for each contract model.
 Validate an incoming payload with the corresponding model before consuming it:
 
 ```python

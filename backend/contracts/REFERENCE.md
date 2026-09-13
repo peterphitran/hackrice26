@@ -221,10 +221,10 @@ Autonomy levels have these agreed meanings:
 
 ## Fixtures and Validation
 
-Current examples are in `fixtures/` for `AnalysisJob`, `RepositoryContext`,
-`Finding`, `Evidence`, `VerificationResult`, and `LouDecision`. The remaining
-contracts intentionally have no fixture until an owning workstream integrates
-them.
+`fixtures/` contains one valid version-one example for every contract. Treat
+these as the baseline hand-off payloads when developing a producer or consumer.
+When a contract changes, update its fixture and this reference in the same pull
+request.
 
 Validate data at a boundary before consuming it:
 

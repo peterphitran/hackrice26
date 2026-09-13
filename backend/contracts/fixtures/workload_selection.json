@@ -1,0 +1,10 @@
+{
+  "schema_version": "1",
+  "workload_id": "checkout-load",
+  "workload_type": "k6",
+  "definition_path": "load/checkout.js",
+  "phase": "candidate",
+  "reason": "The changed order-listing path is exercised by checkout.",
+  "confidence": 0.95,
+  "metadata": {"fallback": false}
+}
