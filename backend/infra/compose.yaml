@@ -3,12 +3,14 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: lou
-      POSTGRES_USER: lou
-      POSTGRES_PASSWORD: lou
+      POSTGRES_USER: lou_migrator
+      POSTGRES_PASSWORD: ${LOU_POSTGRES_MIGRATOR_PASSWORD:-lou_migrator}
+      LOU_APP_PASSWORD: ${LOU_POSTGRES_APP_PASSWORD:-lou_app}
+      LOU_TEST_APP_PASSWORD: ${LOU_POSTGRES_TEST_APP_PASSWORD:-lou_test_app}
     ports:
       - "${LOU_POSTGRES_PORT:-5432}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U lou -d lou"]
+      test: ["CMD-SHELL", "pg_isready -U lou_migrator -d lou"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -17,6 +19,7 @@ services:
     networks:
       - default
       - fixture
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
 
 volumes:
   lou-postgres-data:

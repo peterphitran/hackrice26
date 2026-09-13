@@ -21,7 +21,13 @@ class Settings(BaseSettings):
 
     environment: str = "local"
     log_level: str = "INFO"
-    database_url: str = "postgresql+psycopg://lou:lou@localhost:5432/lou"
+    migration_database_url: str = (
+        "postgresql+psycopg://lou_migrator:lou_migrator@localhost:5432/lou"
+    )
+    database_url: str = "postgresql+psycopg://lou_app:lou_app@localhost:5432/lou"
+    test_database_url: str = (
+        "postgresql+psycopg://lou_test_app:lou_test_app@localhost:5432/lou_test"
+    )
     artifact_root: Path = Field(default=Path(".lou/artifacts"))
 
 
