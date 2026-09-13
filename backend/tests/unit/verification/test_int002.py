@@ -1,28 +1,11 @@
-import pytest
+"""INT-002 must rely on the real local application composition."""
 
-from contracts import RepositoryChange
-from lou.application import AnalysisRequest
-from lou.verification.int002 import StubCheckoutWorkloadSelector, StubGraphContextIntelligence
+from lou.application import FixtureRepositoryIntelligence, FixtureWorkloadSelector
+from lou.verification import int002
 
 
-def test_int002_substitutions_are_explicit_and_contract_compatible(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    request = AnalysisRequest("fixture", tmp_path, "a" * 40, "b" * 40)
-    monkeypatch.setattr(
-        "lou.verification.int002.parse_repository_changes",
-        lambda **_: RepositoryChange(
-            repository_id="fixture", base_commit_sha="a" * 40, candidate_commit_sha="b" * 40
-        ),
-    )
-
-    context = StubGraphContextIntelligence().inspect(request, "run-1")[1]
-    workloads = StubCheckoutWorkloadSelector().select(context)
-
-    assert context.metadata["stub"] is True
-    assert context.completeness < 1
-    assert all("[STUB:" in reason for reason in context.selection_reasons.values())
-    assert [item.workload_id for item in workloads] == ["checkout-pytest", "checkout-k6"]
-    assert all(
-        item.metadata["stub"] is True and "[STUB: RI-005]" in item.reason for item in workloads
-    )
+def test_int002_has_no_stubbed_graph_or_workload_components() -> None:
+    assert "StubGraphContextIntelligence" not in int002.__dict__
+    assert "StubCheckoutWorkloadSelector" not in int002.__dict__
+    assert FixtureRepositoryIntelligence.__module__ == "lou.application.live"
+    assert FixtureWorkloadSelector.__module__ == "lou.application.live"
