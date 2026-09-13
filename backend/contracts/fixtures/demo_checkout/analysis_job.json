@@ -1,0 +1,18 @@
+{
+  "schema_version": "1",
+  "analysis_run_id": "run_sh001_checkout_001",
+  "repository_id": "repo_broken_store",
+  "repository_path": "backend/fixtures/broken-store",
+  "base_commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "candidate_commit_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "policy_revision": "1",
+  "toolchain_revision": "1",
+  "verification_plan": {
+    "workloads": ["checkout-pytest", "checkout-k6"],
+    "minimum_p95_regression_ratio": 2.0,
+    "minimum_query_count_increase": 10,
+    "maximum_variance_cv": 0.2,
+    "unit_tests_must_pass": true
+  },
+  "resource_limits": {"timeout_seconds": 120, "k6_repetitions": 5}
+}

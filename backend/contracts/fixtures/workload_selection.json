@@ -1,0 +1,15 @@
+{
+  "schema_version": "1",
+  "workload_id": "checkout-load",
+  "workload_type": "k6",
+  "definition_path": "loadtests/checkout.js",
+  "phase": "candidate",
+  "reason": "The changed Store.checkout symbol serves POST /checkout.",
+  "confidence": 1.0,
+  "metadata": {
+    "endpoint": "POST /checkout",
+    "primary_signal": "database_queries",
+    "warmup_iterations": 5,
+    "measurement_iterations": 20
+  }
+}

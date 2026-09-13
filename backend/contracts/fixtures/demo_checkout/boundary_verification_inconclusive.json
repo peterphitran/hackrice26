@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "verification_run_id": "verify_checkout_candidate_high_variance_001",
+  "analysis_run_id": "run_sh001_checkout_001",
+  "phase": "candidate",
+  "commit_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "status": "inconclusive",
+  "workload_id": "checkout-k6",
+  "metrics": {"p50_ms": 140.0, "p95_ms": 330.0, "p99_ms": 650.0, "queries_per_checkout": 54.0},
+  "findings": [],
+  "evidence_ids": [],
+  "artifact_uri": "file://.lou/artifacts/run_sh001_checkout_001/candidate/high-variance-verification.json",
+  "metadata": {
+    "parent_commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "k6_repetitions": 5,
+    "latency_variance_cv": 0.42,
+    "inconclusive_reason": "Latency variance exceeds the 0.20 maximum; repeat under stable conditions."
+  }
+}

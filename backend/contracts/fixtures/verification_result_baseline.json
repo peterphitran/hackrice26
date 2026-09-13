@@ -1,0 +1,14 @@
+{
+  "schema_version": "1",
+  "verification_run_id": "verify_baseline_001",
+  "analysis_run_id": "run_demo_001",
+  "phase": "baseline",
+  "commit_sha": "good",
+  "status": "passed",
+  "workload_id": "checkout-load",
+  "metrics": {"query_count_median": 2.0, "error_rate": 0.0, "repetitions": 5.0},
+  "findings": [],
+  "evidence_ids": ["evidence_k6_baseline_001"],
+  "artifact_uri": "file://.lou/artifacts/run_demo_001/baseline/verification.json",
+  "metadata": {}
+}

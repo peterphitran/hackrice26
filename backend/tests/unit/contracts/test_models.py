@@ -1,14 +1,19 @@
 from datetime import UTC, datetime
 from pathlib import Path
 
+from pydantic import BaseModel
+
 from contracts import (
+    AgentResult,
     AnalysisJob,
     Evidence,
     Finding,
     LouDecision,
+    PatchArtifact,
     RepositoryChange,
     RepositoryContext,
     VerificationResult,
+    WorkloadSelection,
 )
 
 FIXTURES_DIR = Path(__file__).parents[3] / "contracts" / "fixtures"
@@ -61,15 +66,21 @@ def test_evidence_and_decision_support_hackathon_result() -> None:
 
 
 def test_published_contract_fixtures_validate() -> None:
-    fixtures = {
+    fixtures: dict[str, type[BaseModel]] = {
         "analysis_job.json": AnalysisJob,
+        "repository_change.json": RepositoryChange,
         "repository_context.json": RepositoryContext,
+        "workload_selection.json": WorkloadSelection,
         "finding.json": Finding,
         "evidence.json": Evidence,
+        "evidence_baseline.json": Evidence,
         "verification_result.json": VerificationResult,
+        "agent_result.json": AgentResult,
+        "patch_artifact.json": PatchArtifact,
+        "verification_result_baseline.json": VerificationResult,
         "lou_decision.json": LouDecision,
     }
 
     for filename, model in fixtures.items():
         payload = (FIXTURES_DIR / filename).read_text()
-        assert model.model_validate_json(payload).schema_version == "1"
+        assert model.model_validate_json(payload).model_dump()["schema_version"] == "1"

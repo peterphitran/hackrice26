@@ -6,7 +6,12 @@
   "kind": "k6-summary",
   "source": "k6",
   "collected_at": "2026-09-12T12:00:00Z",
-  "summary": {"p95_ms": 820.0, "request_count": 100},
+  "summary": {
+    "query_count_median": 51,
+    "baseline_query_count_median": 2,
+    "repetitions": 5,
+    "error_rate": 0.0
+  },
   "artifact_uri": "file://.lou/artifacts/run_demo_001/candidate/k6-summary.json",
   "artifact_sha256": "example-sha256",
   "metadata": {}

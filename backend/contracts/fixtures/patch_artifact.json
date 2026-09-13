@@ -1,0 +1,12 @@
+{
+  "schema_version": "1",
+  "patch_id": "patch_demo_001",
+  "analysis_run_id": "run_demo_001",
+  "base_commit_sha": "n_plus_one_commit",
+  "patch_sha256": "sha256:example-patch",
+  "artifact_uri": "file://.lou/artifacts/run_demo_001/patches/patch_demo_001.diff",
+  "files_changed": 1,
+  "lines_added": 3,
+  "lines_deleted": 1,
+  "metadata": {"validated_against": "n_plus_one_commit"}
+}

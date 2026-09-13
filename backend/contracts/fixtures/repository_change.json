@@ -1,0 +1,13 @@
+{
+  "schema_version": "1",
+  "repository_id": "repo_store_api",
+  "base_commit_sha": "good_commit",
+  "candidate_commit_sha": "n_plus_one_commit",
+  "added_files": [],
+  "modified_files": ["app/orders/service.py"],
+  "deleted_files": [],
+  "renamed_files": {},
+  "changed_symbols": ["orders.service.list_orders"],
+  "completeness": 1.0,
+  "metadata": {"extractor": "python-ast"}
+}

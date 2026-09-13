@@ -1,0 +1,20 @@
+{
+  "schema_version": "1",
+  "verification_run_id": "verify_checkout_fix_001",
+  "analysis_run_id": "run_sh001_checkout_001",
+  "phase": "fix",
+  "commit_sha": "cccccccccccccccccccccccccccccccccccccccc",
+  "status": "passed",
+  "metrics": {"p50_ms": 55.0, "p95_ms": 125.0, "p99_ms": 200.0, "queries_per_checkout": 4.0},
+  "findings": [],
+  "evidence_ids": [],
+  "artifact_uri": "file://.lou/artifacts/run_sh001_checkout_001/fix/verification.json",
+  "metadata": {
+    "parent_commit_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "workload_ids": ["checkout-pytest", "checkout-k6"],
+    "pytest_status": "passed",
+    "k6_status": "passed",
+    "k6_repetitions": 5,
+    "latency_variance_cv": 0.05
+  }
+}

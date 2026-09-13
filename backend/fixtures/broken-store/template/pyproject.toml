@@ -1,0 +1,18 @@
+[project]
+name = "broken-store"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115,<1.0",
+  "psycopg[binary]>=3.2,<4.0",
+  "uvicorn>=0.30,<1.0",
+]
+
+[project.optional-dependencies]
+test = [
+  "httpx>=0.27,<1.0",
+  "pytest>=8.2,<9.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
