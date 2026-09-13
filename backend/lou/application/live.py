@@ -39,6 +39,7 @@ from lou.repository import fixture_commands as fixture_commands
 from lou.repository import fixture_workloads as fixture_workloads
 from lou.repository.symbols import extract_changed_symbols
 from lou.scoring import DebtInputs, RemediationInputs
+from lou.scoring.observed import graph_debt_features
 from lou.telemetry import build_telemetry
 from lou.telemetry.correlation import correlation_summary
 from lou.verification import PhaseObservations, compare_candidate, disposable_worktree
@@ -282,7 +283,7 @@ class FixtureDecisionAdapter:
         )
         debt_values.setdefault("evidence_confidence", 1.0)
         if context is not None:
-            for name, observed in _observed_debt_inputs(context).items():
+            for name, observed in graph_debt_features(context).items():
                 debt_values.setdefault(name, observed)
         remediation_values = _configured_values(request.configuration, "remediation_inputs")
         decision = decide_autonomy(
@@ -319,25 +320,6 @@ class FixtureDecisionAdapter:
                 },
             }
         )
-
-
-def _observed_debt_inputs(context: RepositoryContext) -> dict[str, float]:
-    """Derive the debt features this slice actually measures; omit the rest.
-
-    Only graph-backed observations are returned. complexity and coverage_deficit are
-    deliberately absent because nothing here measures them — the scorer treats missing
-    features as unknown and lowers confidence, which is the honest outcome.
-    """
-    reached = len(context.affected_symbols)
-    changed = max(len(context.changed_symbols), 1)
-    return {
-        # How far the change reaches through the call graph, saturating at 10 symbols.
-        "graph_centrality": min(reached / 10.0, 1.0),
-        # A change on a served endpoint sits on a user-facing path.
-        "path_criticality": 1.0 if context.affected_endpoints else 0.4,
-        # Symbols touched relative to a 5-symbol repair budget.
-        "estimated_patch_size": min(changed / 5.0, 1.0),
-    }
 
 
 def _plan_identity(
