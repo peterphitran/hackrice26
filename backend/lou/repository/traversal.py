@@ -1,303 +1,263 @@
-"""Deterministic, budgeted impact traversal over an RI-003 repository graph."""
+"""Deterministic impact traversal over an immutable repository graph."""
 
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Iterable
-from dataclasses import asdict, dataclass
-from pathlib import PurePosixPath
-from typing import Literal, cast
+from dataclasses import dataclass
+from typing import Any, cast
 
 from contracts import RepositoryContext
 from lou.repository.graph import EdgeType, NodeType, RepositoryGraphSnapshot
 
-_OUTGOING_EDGES: frozenset[EdgeType] = frozenset(
-    {
-        "CALLS",
-        "TESTED_BY",
-        "SERVES_ENDPOINT",
-        "READS_FROM",
-        "WRITES_TO",
-        "VALIDATED_BY",
-    }
-)
-_TERMINAL_NODE_TYPES: frozenset[NodeType] = frozenset({"TEST", "DATABASE_TABLE", "LOAD_SCENARIO"})
-_EDGE_ORDER: dict[EdgeType, int] = {
-    "TESTED_BY": 0,
-    "CALLS": 1,
-    "SERVES_ENDPOINT": 2,
-    "READS_FROM": 3,
-    "WRITES_TO": 4,
-    "VALIDATED_BY": 5,
-    "DEFINES": 6,
-    "IMPORTS": 7,
-}
+_PYTEST_WORKLOAD_ID = "checkout-pytest"
+_K6_WORKLOAD_ID = "checkout-k6"
 
 
 @dataclass(frozen=True)
 class TraversalLimits:
-    """Budgets for impact traversal, excluding the changed-symbol roots."""
+    """Bounds for one impact query, independent of graph extraction limits."""
 
     max_depth: int = 3
-    max_nodes: int = 100
+    max_nodes: int = 64
 
     def __post_init__(self) -> None:
         if self.max_depth < 0:
-            raise ValueError("max_depth must be non-negative")
-        if self.max_nodes < 0:
-            raise ValueError("max_nodes must be non-negative")
+            raise ValueError("traversal max_depth must not be negative")
+        if self.max_nodes <= 0:
+            raise ValueError("traversal max_nodes must be positive")
 
 
 @dataclass(frozen=True)
-class _Step:
-    source: str
-    target: str
-    edge_type: EdgeType
-    direction: Literal["forward", "reverse"]
+class ImpactNode:
+    """One graph node reached through the shortest allowed impact path."""
 
-    def render(self) -> str:
-        if self.direction == "forward":
-            return f"{self.source} --{self.edge_type}--> {self.target}"
-        return f"{self.source} <--{self.edge_type}-- {self.target}"
+    node_id: str
+    node_type: NodeType
+    key: str
+    path: str | None
+    distance: int
+    edge_path: tuple[EdgeType, ...]
+    confidence: float
 
 
 @dataclass(frozen=True)
-class _Transition:
-    target: str
-    step: _Step
+class ImpactTraversal:
+    """Stable, explainable output of an impact traversal."""
+
+    nodes: tuple[ImpactNode, ...]
+    unresolved_relationships: tuple[str, ...]
+    completeness: float
+
+    def by_type(self, node_type: NodeType) -> tuple[ImpactNode, ...]:
+        """Return reached nodes of one type in stable traversal order."""
+
+        return tuple(node for node in self.nodes if node.node_type == node_type)
+
+    def payload(self) -> dict[str, object]:
+        """Return a JSON-safe, deterministically ordered explanation of the traversal."""
+
+        return {
+            "completeness": self.completeness,
+            "nodes": [
+                {
+                    "node_id": node.node_id,
+                    "node_type": node.node_type,
+                    "key": node.key,
+                    "path": node.path,
+                    "distance": node.distance,
+                    "edge_path": list(node.edge_path),
+                    "confidence": node.confidence,
+                }
+                for node in self.nodes
+            ],
+            "unresolved_relationships": list(self.unresolved_relationships),
+        }
 
 
-def _node_type(snapshot: RepositoryGraphSnapshot, node_id: str) -> NodeType:
-    return cast(NodeType, snapshot.graph.nodes[node_id]["node_type"])
+def build_repository_context(
+    traversal: ImpactTraversal,
+    *,
+    repository_id: str,
+    commit_sha: str,
+) -> RepositoryContext:
+    """Convert typed impact results into the frozen downstream context contract.
 
-
-def _node_key(snapshot: RepositoryGraphSnapshot, node_id: str) -> str:
-    return cast(str, snapshot.graph.nodes[node_id]["key"])
-
-
-def _is_test_internal(snapshot: RepositoryGraphSnapshot, node_id: str) -> bool:
-    """Identify helper symbols defined in test files but not modeled as TEST nodes."""
-
-    if _node_type(snapshot, node_id) == "TEST":
-        return False
-    raw_path = snapshot.graph.nodes[node_id].get("path")
-    if not isinstance(raw_path, str):
-        return False
-    path = PurePosixPath(raw_path)
-    return "tests" in path.parts or path.name.startswith("test_")
-
-
-def _transitions(snapshot: RepositoryGraphSnapshot, node_id: str) -> list[_Transition]:
-    """Return supported edges in stable preference order.
-
-    Tests are impact results, not traversal intermediates. Reverse CALLS edges from
-    tests are also excluded because TESTED_BY carries that relationship explicitly.
+    The first demo has one approved pytest workload and one approved k6 workload.
+    Their IDs intentionally match the verification registry; graph node keys remain
+    unchanged everywhere else.
     """
 
-    if _node_type(snapshot, node_id) in _TERMINAL_NODE_TYPES:
-        return []
+    roots = [node for node in traversal.nodes if node.distance == 0]
+    symbols = [node for node in traversal.nodes if node.node_type in {"FUNCTION", "CLASS"}]
+    tests = list(traversal.by_type("TEST"))
+    endpoints = list(traversal.by_type("ENDPOINT"))
+    tables = list(traversal.by_type("DATABASE_TABLE"))
+    scenarios = list(traversal.by_type("LOAD_SCENARIO"))
 
-    transitions: list[_Transition] = []
-    for _, target, raw_edge_type in snapshot.graph.out_edges(node_id, keys=True):
-        edge_type = cast(EdgeType, raw_edge_type)
-        if edge_type not in _OUTGOING_EDGES or _is_test_internal(snapshot, target):
-            continue
-        transitions.append(_Transition(target, _Step(node_id, target, edge_type, "forward")))
+    selected_workload_ids: list[str] = []
+    workload_reasons: dict[str, str] = {}
+    reachable_tests = [
+        node for node in tests if any(edge in {"TESTED_BY", "CALLS"} for edge in node.edge_path)
+    ]
+    if reachable_tests:
+        selected_workload_ids.append(_PYTEST_WORKLOAD_ID)
+        workload_reasons[_PYTEST_WORKLOAD_ID] = _workload_reason(
+            _PYTEST_WORKLOAD_ID, reachable_tests
+        )
+    if scenarios:
+        selected_workload_ids.append(_K6_WORKLOAD_ID)
+        workload_reasons[_K6_WORKLOAD_ID] = _workload_reason(_K6_WORKLOAD_ID, scenarios)
 
-    for source, _, raw_edge_type in snapshot.graph.in_edges(node_id, keys=True):
-        edge_type = cast(EdgeType, raw_edge_type)
-        if (
-            edge_type != "CALLS"
-            or _node_type(snapshot, source) == "TEST"
-            or _is_test_internal(snapshot, source)
-        ):
-            continue
-        transitions.append(_Transition(source, _Step(node_id, source, edge_type, "reverse")))
+    returned_nodes = [*roots, *symbols, *tests, *endpoints, *tables]
+    selection_reasons = {node.key: _node_reason(node) for node in returned_nodes}
+    selection_reasons.update(workload_reasons)
 
-    return sorted(
-        transitions,
-        key=lambda item: (
-            _EDGE_ORDER[item.step.edge_type],
-            item.target,
-            item.step.direction,
-        ),
+    return RepositoryContext(
+        repository_id=repository_id,
+        commit_sha=commit_sha,
+        changed_symbols=_stable_keys(roots),
+        affected_symbols=_stable_keys(symbols),
+        affected_tests=_stable_keys(tests),
+        affected_endpoints=_stable_keys(endpoints),
+        affected_data_dependencies=_stable_keys(tables),
+        selected_workload_ids=selected_workload_ids,
+        selection_reasons=selection_reasons,
+        unresolved_relationships=list(traversal.unresolved_relationships),
+        completeness=traversal.completeness,
+        metadata={
+            "source": "lou.repository.traversal",
+            "impact_traversal": traversal.payload(),
+        },
     )
 
 
-def _root_nodes(
-    snapshot: RepositoryGraphSnapshot, changed_symbols: list[str]
-) -> tuple[dict[str, str], list[str]]:
-    candidates: dict[str, list[str]] = {}
-    changed_set = set(changed_symbols)
-    for node_id, attributes in snapshot.graph.nodes(data=True):
-        node_type = cast(NodeType, attributes["node_type"])
-        key = cast(str, attributes["key"])
-        if node_type in {"FUNCTION", "CLASS"} and key in changed_set:
-            candidates.setdefault(key, []).append(node_id)
-
-    roots: dict[str, str] = {}
-    missing: list[str] = []
-    for key in changed_symbols:
-        matches = sorted(candidates.get(key, ()))
-        if matches:
-            roots[key] = matches[0]
-        else:
-            missing.append(key)
-    return roots, missing
+def _stable_keys(nodes: list[ImpactNode]) -> list[str]:
+    return list(dict.fromkeys(node.key for node in nodes))
 
 
-def _diagnostic_message(code: str, path: str | None, detail: str | None) -> str:
-    location = f" ({path})" if path else ""
-    explanation = f": {detail}" if detail else ""
-    return f"graph extraction incomplete: {code}{location}{explanation}"
+def _edge_path(node: ImpactNode) -> str:
+    return " -> ".join(node.edge_path) if node.edge_path else "traversal root"
 
 
-def _path_reason(root: str, steps: tuple[_Step, ...]) -> str:
-    rendered = " ; ".join(step.render() for step in steps)
-    return f"Reached from changed symbol {root} in {len(steps)} hop(s): {rendered}"
+def _node_reason(node: ImpactNode) -> str:
+    return (
+        f"Reached {node.node_type} node {node.key} at distance {node.distance} "
+        f"via {_edge_path(node)}."
+    )
 
 
-def _classify(
-    snapshot: RepositoryGraphSnapshot,
-    node_ids: list[str],
-) -> tuple[list[str], list[str], list[str], list[str], list[str]]:
-    symbols: list[str] = []
-    tests: list[str] = []
-    endpoints: list[str] = []
-    data_dependencies: list[str] = []
-    workloads: list[str] = []
-    for node_id in node_ids:
-        key = _node_key(snapshot, node_id)
-        node_type = _node_type(snapshot, node_id)
-        if node_type in {"FUNCTION", "CLASS"}:
-            symbols.append(key)
-        elif node_type == "TEST":
-            tests.append(key)
-        elif node_type == "ENDPOINT":
-            endpoints.append(key)
-        elif node_type == "DATABASE_TABLE":
-            data_dependencies.append(key)
-        elif node_type == "LOAD_SCENARIO":
-            workloads.append(key)
-    return symbols, tests, endpoints, data_dependencies, workloads
+def _workload_reason(workload_id: str, nodes: list[ImpactNode]) -> str:
+    evidence = "; ".join(
+        f"{node.key} at distance {node.distance} via {_edge_path(node)}" for node in nodes
+    )
+    return f"Selected {workload_id} from reachable graph evidence: {evidence}."
 
 
-def traverse_repository_graph(
-    snapshot: RepositoryGraphSnapshot,
-    *,
-    changed_symbols: Iterable[str] | None = None,
-    limits: TraversalLimits | None = None,
-) -> RepositoryContext:
-    """Build a RepositoryContext by walking callers, callees, and impact nodes.
+def traverse_repository_impact(
+    snapshot: RepositoryGraphSnapshot, *, limits: TraversalLimits | None = None
+) -> ImpactTraversal:
+    """Find tests, endpoints, tables, and load scenarios affected by changed nodes.
 
-    Changed-symbol roots do not consume ``max_nodes``. Paths are breadth-first, so
-    the recorded reason is a shortest path; stable edge ordering breaks ties.
+    This is deliberately an impact query rather than a generic graph walk. It follows
+    only relationships that can establish a verification target, preventing imports and
+    definitions from broadening a run without evidence.
     """
 
     active_limits = limits or TraversalLimits()
-    if changed_symbols is None:
-        requested = sorted(
-            {
-                _node_key(snapshot, node_id)
-                for node_id, attributes in snapshot.graph.nodes(data=True)
-                if bool(attributes.get("changed"))
-                and cast(NodeType, attributes["node_type"]) in {"FUNCTION", "CLASS"}
-            }
-        )
-    else:
-        requested = sorted(set(changed_symbols))
-
-    roots, missing_roots = _root_nodes(snapshot, requested)
-    reasons = {key: "Changed symbol; traversal root." for key in roots}
-    for key in missing_roots:
-        reasons[key] = "Changed symbol requested but absent from the candidate graph."
-
+    graph = snapshot.graph
+    starts = sorted(node_id for node_id, data in graph.nodes(data=True) if data.get("changed"))
     unresolved = [
-        _diagnostic_message(item.code, item.path, item.detail) for item in snapshot.diagnostics
+        _diagnostic_text(item.code, item.path, item.detail) for item in snapshot.diagnostics
     ]
-    unresolved.extend(
-        f"changed symbol missing from candidate graph: {key}" for key in missing_roots
-    )
+    if not starts:
+        unresolved.append("no_changed_graph_nodes")
+        return ImpactTraversal((), tuple(sorted(set(unresolved))), snapshot.completeness)
 
-    queue: deque[tuple[str, int, str, tuple[_Step, ...]]] = deque(
-        (node_id, 0, key, ()) for key, node_id in roots.items()
-    )
-    visited = set(roots.values())
-    selected: list[str] = []
-    selected_paths: dict[str, tuple[str, tuple[_Step, ...]]] = {}
-    budget_stops: list[str] = []
-    omitted_nodes: set[str] = set()
-    node_budget_exhausted = False
+    reached: dict[str, ImpactNode] = {}
+    pending: deque[ImpactNode] = deque()
+    truncated = False
+    for node_id in starts:
+        if len(reached) >= active_limits.max_nodes:
+            truncated = True
+            break
+        node = _impact_node(graph, node_id, distance=0, edge_path=(), confidence=None)
+        reached[node_id] = node
+        pending.append(node)
 
-    while queue and not node_budget_exhausted:
-        node_id, depth, root, path = queue.popleft()
-        transitions = [
-            item for item in _transitions(snapshot, node_id) if item.target not in visited
-        ]
-        if depth >= active_limits.max_depth:
-            for transition in transitions:
-                omitted_nodes.add(transition.target)
-                message = (
-                    f"depth budget exhausted (max_depth={active_limits.max_depth}): "
-                    f"not traversed: {transition.step.render()}"
-                )
-                unresolved.append(message)
-                budget_stops.append(message)
+    while pending:
+        current = pending.popleft()
+        if current.distance >= active_limits.max_depth:
             continue
-
-        for transition in transitions:
-            if transition.target in visited:
+        for next_id, edge_type, edge_confidence in _next_steps(graph, current.node_id):
+            if next_id in reached:
                 continue
-            next_path = (*path, transition.step)
-            if len(selected) >= active_limits.max_nodes:
-                omitted_nodes.add(transition.target)
-                message = (
-                    f"node budget exhausted (max_nodes={active_limits.max_nodes}): "
-                    f"not selected via {_path_reason(root, next_path)}"
-                )
-                unresolved.append(message)
-                budget_stops.append(message)
-                node_budget_exhausted = True
-                break
-            visited.add(transition.target)
-            selected.append(transition.target)
-            selected_paths[transition.target] = (root, next_path)
-            queue.append((transition.target, depth + 1, root, next_path))
+            if len(reached) >= active_limits.max_nodes:
+                truncated = True
+                continue
+            next_node = _impact_node(
+                graph,
+                next_id,
+                distance=current.distance + 1,
+                edge_path=(*current.edge_path, edge_type),
+                confidence=min(current.confidence, edge_confidence),
+            )
+            reached[next_id] = next_node
+            pending.append(next_node)
 
-    for node_id in selected:
-        root, path = selected_paths[node_id]
-        reasons[_node_key(snapshot, node_id)] = _path_reason(root, path)
+    if truncated:
+        unresolved.append("traversal_node_limit")
+    ordered = tuple(sorted(reached.values(), key=lambda item: (item.distance, item.node_id)))
+    return ImpactTraversal(ordered, tuple(sorted(set(unresolved))), snapshot.completeness)
 
-    affected_symbols, affected_tests, affected_endpoints, dependencies, workloads = _classify(
-        snapshot, selected
+
+def _next_steps(graph: object, node_id: str) -> tuple[tuple[str, EdgeType, float], ...]:
+    """Return the small, semantically allowed impact neighborhood of ``node_id``."""
+
+    # NetworkX's dynamic graph types are intentionally contained here; all public traversal
+    # output is typed immutable data.
+    graph_data = cast(Any, graph)
+    node_type = graph_data.nodes[node_id]["node_type"]
+    steps: list[tuple[str, EdgeType, float]] = []
+    if node_type in {"FUNCTION", "CLASS"}:
+        for _, target, edge_type, data in graph_data.out_edges(node_id, keys=True, data=True):
+            if edge_type in {
+                "CALLS",
+                "TESTED_BY",
+                "READS_FROM",
+                "WRITES_TO",
+                "SERVES_ENDPOINT",
+            }:
+                steps.append((target, edge_type, float(data["confidence"])))
+        for source, _, edge_type, data in graph_data.in_edges(node_id, keys=True, data=True):
+            if edge_type == "CALLS":
+                steps.append((source, edge_type, float(data["confidence"])))
+    elif node_type == "ENDPOINT":
+        for _, target, edge_type, data in graph_data.out_edges(node_id, keys=True, data=True):
+            if edge_type == "VALIDATED_BY":
+                steps.append((target, edge_type, float(data["confidence"])))
+    return tuple(sorted(steps, key=lambda item: (item[0], item[1])))
+
+
+def _impact_node(
+    graph: object,
+    node_id: str,
+    *,
+    distance: int,
+    edge_path: tuple[EdgeType, ...],
+    confidence: float | None,
+) -> ImpactNode:
+    graph_data = cast(Any, graph)
+    data = graph_data.nodes[node_id]
+    return ImpactNode(
+        node_id=node_id,
+        node_type=data["node_type"],
+        key=data["key"],
+        path=data.get("path"),
+        distance=distance,
+        edge_path=edge_path,
+        confidence=float(data["confidence"]) if confidence is None else confidence,
     )
 
-    root_factor = len(roots) / len(requested) if requested else 1.0
-    traversal_factor = (
-        len(selected) / (len(selected) + len(omitted_nodes)) if omitted_nodes else 1.0
-    )
-    completeness = max(
-        0.0,
-        min(1.0, snapshot.completeness * root_factor * traversal_factor),
-    )
 
-    return RepositoryContext(
-        repository_id=snapshot.repository_id,
-        commit_sha=snapshot.commit_sha,
-        changed_symbols=requested,
-        affected_symbols=affected_symbols,
-        affected_tests=affected_tests,
-        affected_endpoints=affected_endpoints,
-        affected_data_dependencies=dependencies,
-        selected_workload_ids=workloads,
-        selection_reasons=reasons,
-        unresolved_relationships=sorted(set(unresolved)),
-        completeness=completeness,
-        metadata={
-            "source": "lou.repository.traversal",
-            "limits": asdict(active_limits),
-            "selected_node_count": len(selected),
-            "budget_stops": sorted(set(budget_stops)),
-            "test_nodes_are_terminal": True,
-        },
-    )
+def _diagnostic_text(code: str, path: str | None, detail: str | None) -> str:
+    return ": ".join(item for item in (code, path, detail) if item)

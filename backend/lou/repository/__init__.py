@@ -15,7 +15,13 @@ from lou.repository.graph import (
     build_repository_graph,
 )
 from lou.repository.symbols import extract_changed_symbols
-from lou.repository.traversal import TraversalLimits, traverse_repository_graph
+from lou.repository.traversal import (
+    ImpactNode,
+    ImpactTraversal,
+    TraversalLimits,
+    build_repository_context,
+    traverse_repository_impact,
+)
 
 __all__ = [
     "ResolvedRevisions",
@@ -25,10 +31,13 @@ __all__ = [
     "NodeType",
     "RepositoryGraphError",
     "RepositoryGraphSnapshot",
-    "TraversalLimits",
     "build_repository_graph",
     "extract_changed_symbols",
     "parse_repository_changes",
     "resolve_repository_revisions",
-    "traverse_repository_graph",
+    "ImpactNode",
+    "ImpactTraversal",
+    "TraversalLimits",
+    "build_repository_context",
+    "traverse_repository_impact",
 ]

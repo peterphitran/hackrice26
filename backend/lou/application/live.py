@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import subprocess
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -23,7 +22,13 @@ from lou.application.analysis import AnalysisApplicationService, AnalysisRequest
 from lou.core.settings import Settings
 from lou.decision.autonomy import decide_autonomy
 from lou.policies import AutonomyPolicy
-from lou.repository import parse_repository_changes
+from lou.repository import (
+    ImpactTraversal,
+    TraversalLimits,
+    build_repository_graph,
+    parse_repository_changes,
+    traverse_repository_impact,
+)
 from lou.repository.symbols import extract_changed_symbols
 from lou.scoring import DebtInputs, RemediationInputs
 from lou.verification import PhaseObservations, compare_candidate, disposable_worktree
@@ -72,7 +77,10 @@ def fixture_workloads() -> tuple[WorkloadSelection, ...]:
             phase="candidate",
             reason="Fixture checkout correctness gate.",
             confidence=1.0,
-            metadata={"registry_revision": _REGISTRY_REVISION},
+            metadata={
+                "registry_revision": _REGISTRY_REVISION,
+                "test_path": _PYTEST_PATH,
+            },
         ),
         WorkloadSelection(
             workload_id=_K6_ID,
@@ -81,7 +89,10 @@ def fixture_workloads() -> tuple[WorkloadSelection, ...]:
             phase="candidate",
             reason="Fixture checkout query-count workload.",
             confidence=1.0,
-            metadata={"registry_revision": _REGISTRY_REVISION},
+            metadata={
+                "registry_revision": _REGISTRY_REVISION,
+                "endpoint": "POST /checkout",
+            },
         ),
     )
 
@@ -92,8 +103,13 @@ def fixture_commands() -> dict[str, tuple[str, ...]]:
     return {_PYTEST_ID: _PYTEST_COMMAND}
 
 
+@dataclass(frozen=True)
 class FixtureRepositoryIntelligence:
-    """Static repository context for the checked-in broken-store fixture only."""
+    """Graph-backed repository context for the checked-in broken-store fixture only."""
+
+    artifact_root: Path = Path(".lou/artifacts")
+    traversal_limits: TraversalLimits = TraversalLimits()
+    fallback_workload_ids: tuple[str, ...] = ()
 
     def inspect(
         self, request: AnalysisRequest, run_id: str
@@ -105,35 +121,28 @@ class FixtureRepositoryIntelligence:
             candidate_revision=request.candidate_commit_sha,
         )
         change = extract_changed_symbols(repository_path=request.repository_path, change=change)
-        selected = (
-            fixture_workloads()
-            if _has_fixture_layout(request.repository_path, request.candidate_commit_sha)
-            else ()
+        snapshot = build_repository_graph(
+            repository_path=request.repository_path,
+            change=change,
+            analysis_run_id=run_id,
+            artifact_root=self.artifact_root,
         )
-        checkout_changed = any(
-            symbol.endswith("Store.checkout") for symbol in change.changed_symbols
+        traversal = traverse_repository_impact(snapshot, limits=self.traversal_limits)
+        context = _context_from_traversal(change, traversal, run_id, snapshot.artifact_uri)
+        fallback_workload_ids = self.fallback_workload_ids if snapshot.completeness < 1 else ()
+        selected = _select_fixture_workloads(
+            context,
+            fallback_workload_ids=fallback_workload_ids,
         )
-        context = RepositoryContext(
-            repository_id=request.repository_id,
-            commit_sha=request.candidate_commit_sha,
-            changed_symbols=change.changed_symbols,
-            affected_symbols=change.changed_symbols,
-            affected_tests=[_PYTEST_PATH] if checkout_changed and selected else [],
-            affected_endpoints=["POST /checkout"] if checkout_changed and selected else [],
-            affected_data_dependencies=(
-                ["broken_store.cart_items", "broken_store.products"]
-                if checkout_changed and selected
-                else []
-            ),
-            selected_workload_ids=[item.workload_id for item in selected],
-            selection_reasons={item.workload_id: item.reason for item in selected},
-            unresolved_relationships=(
-                []
-                if selected
-                else ["No approved broken-store fixture workload is available for this repository."]
-            ),
-            completeness=1.0 if selected else 0.0,
-            metadata={"registry_revision": _REGISTRY_REVISION, "analysis_run_id": run_id},
+        context = context.model_copy(
+            update={
+                "selected_workload_ids": [item.workload_id for item in selected],
+                "selection_reasons": {item.workload_id: item.reason for item in selected},
+                "metadata": {
+                    **context.metadata,
+                    "fallback_workload_ids": list(fallback_workload_ids),
+                },
+            }
         )
         return change, context
 
@@ -142,8 +151,15 @@ class FixtureWorkloadSelector:
     """Return only registry workloads selected by the fixture context."""
 
     def select(self, context: RepositoryContext) -> tuple[WorkloadSelection, ...]:
-        available = {item.workload_id: item for item in fixture_workloads()}
-        return tuple(available[item] for item in context.selected_workload_ids if item in available)
+        raw_fallback_ids = context.metadata.get("fallback_workload_ids", [])
+        if not isinstance(raw_fallback_ids, list) or not all(
+            isinstance(item, str) for item in raw_fallback_ids
+        ):
+            raise ValueError("repository context fallback_workload_ids must be a list of strings")
+        return _select_fixture_workloads(
+            context,
+            fallback_workload_ids=tuple(raw_fallback_ids),
+        )
 
 
 @dataclass
@@ -298,17 +314,73 @@ class FixtureDecisionAdapter:
         )
 
 
-def _has_fixture_layout(repository: Path, candidate_sha: str) -> bool:
-    for relative_path in (_PYTEST_PATH, _K6_PATH, "store/app.py"):
-        result = subprocess.run(
-            ["git", "-C", str(repository), "cat-file", "-e", f"{candidate_sha}:{relative_path}"],
-            capture_output=True,
-            check=False,
-            timeout=10,
+def _context_from_traversal(
+    change: RepositoryChange,
+    traversal: ImpactTraversal,
+    run_id: str,
+    artifact_uri: str,
+) -> RepositoryContext:
+    """Project only graph-observed relationships into the shared context contract."""
+
+    affected_symbols = [
+        item.key for item in traversal.nodes if item.node_type in {"FUNCTION", "CLASS"}
+    ]
+    tests = [item.path or item.key for item in traversal.by_type("TEST")]
+    endpoints = [item.key for item in traversal.by_type("ENDPOINT")]
+    tables = [item.key for item in traversal.nodes if item.node_type == "DATABASE_TABLE"]
+    return RepositoryContext(
+        repository_id=change.repository_id,
+        commit_sha=change.candidate_commit_sha,
+        changed_symbols=change.changed_symbols,
+        affected_symbols=affected_symbols,
+        affected_tests=tests,
+        affected_endpoints=endpoints,
+        affected_data_dependencies=tables,
+        unresolved_relationships=list(traversal.unresolved_relationships),
+        completeness=traversal.completeness,
+        metadata={
+            "registry_revision": _REGISTRY_REVISION,
+            "analysis_run_id": run_id,
+            "graph_artifact_uri": artifact_uri,
+            "impact_traversal": traversal.payload(),
+        },
+    )
+
+
+def _select_fixture_workloads(
+    context: RepositoryContext,
+    *,
+    fallback_workload_ids: tuple[str, ...] = (),
+) -> tuple[WorkloadSelection, ...]:
+    """Select only trusted registry entries that context evidence reaches."""
+
+    selected: list[WorkloadSelection] = []
+    available = {item.workload_id: item for item in fixture_workloads()}
+    fallback = set(fallback_workload_ids)
+    for workload in fixture_workloads():
+        test_path = workload.metadata.get("test_path")
+        endpoint = workload.metadata.get("endpoint")
+        graph_selected = (
+            test_path in context.affected_tests or endpoint in context.affected_endpoints
         )
-        if result.returncode != 0:
-            return False
-    return True
+        if graph_selected:
+            selected.append(workload)
+        elif workload.workload_id in fallback:
+            selected.append(
+                workload.model_copy(
+                    update={
+                        "reason": (
+                            "Configured fallback because repository graph extraction is incomplete."
+                        ),
+                        "confidence": 0.0,
+                        "metadata": {**workload.metadata, "fallback": True},
+                    }
+                )
+            )
+    unknown = sorted(set(context.selected_workload_ids) - set(available))
+    if unknown:
+        raise ValueError(f"unknown workload IDs in repository context: {', '.join(unknown)}")
+    return tuple(selected)
 
 
 def _analysis_job(
@@ -408,7 +480,7 @@ def build_fixture_service(settings: Settings) -> AnalysisApplicationService:
 
     return AnalysisApplicationService(
         SqlAlchemyAnalysisStore(create_session_factory(settings)),
-        FixtureRepositoryIntelligence(),
+        FixtureRepositoryIntelligence(settings.artifact_root),
         FixtureWorkloadSelector(),
         FixtureVerificationAdapter(
             DockerWorkloadRunner(database_url=settings.fixture_database_url),

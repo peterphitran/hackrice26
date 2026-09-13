@@ -17,6 +17,8 @@ from lou.verification.fix import FixVerifier
 from lou.verification.runtime import DockerWorkloadRunner
 from tests.unit.verification.test_fix import _request, _setup
 
+pytestmark = pytest.mark.integration
+
 
 def test_live_reverse_patch_restores_checkout(tmp_path: Path) -> None:
     if os.getenv("RUN_LOU_LIVE_EV007") != "1":
@@ -53,7 +55,9 @@ def test_live_reverse_patch_restores_checkout(tmp_path: Path) -> None:
         )
     }
     runner = DockerWorkloadRunner(
-        database_url="postgresql://postgres:lou_ev007@lou-ev007-db:5432/postgres"
+        database_url=os.environ.get(
+            "LOU_FIXTURE_DATABASE_URL", "postgresql://lou_migrator:lou_migrator@postgres:5432/lou"
+        )
     )
     good_worktree = tmp_path / "good"
     subprocess.run(
