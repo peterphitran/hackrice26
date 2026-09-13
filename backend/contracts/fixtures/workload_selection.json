@@ -7,4 +7,14 @@
   "reason": "The changed order-listing path is exercised by checkout.",
   "confidence": 0.95,
   "metadata": {"fallback": false}
+  "definition_path": "loadtests/checkout.js",
+  "phase": "candidate",
+  "reason": "The changed Store.checkout symbol serves POST /checkout.",
+  "confidence": 1.0,
+  "metadata": {
+    "endpoint": "POST /checkout",
+    "primary_signal": "database_queries",
+    "warmup_iterations": 5,
+    "measurement_iterations": 20
+  }
 }

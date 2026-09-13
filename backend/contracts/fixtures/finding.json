@@ -8,9 +8,16 @@
   "severity": "high",
   "confidence": 0.91,
   "phase": "candidate",
-  "title": "Query count increased on order listing",
-  "message": "The candidate run performs one customer query per order.",
-  "file_path": "app/orders/service.py",
-  "symbol_key": "orders.service.list_orders",
-  "metadata": {"query_count_delta": 50}
+  "title": "Query count increased during checkout",
+  "message": "The candidate performs one product query per cart item.",
+  "file_path": "store/app.py",
+  "symbol_key": "store.app.Store.checkout",
+  "metadata": {
+    "baseline_query_count": 2,
+    "candidate_query_count": 51,
+    "absolute_delta": 49,
+    "relative_ratio": 25.5,
+    "threshold_queries": 10,
+    "threshold_ratio": 5.0
+  }
 }
