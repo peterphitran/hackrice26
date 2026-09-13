@@ -14,6 +14,28 @@ The demo uses the checked-in `broken-store` fixture. It does not require GitHub,
 - Docker Desktop running
 - `k6` on `PATH` for the live benchmark
 
+## Containerized application smoke test
+
+The root Compose stack tests the deployed application path: Nginx serves the
+frontend, proxies `/api/` to FastAPI, and FastAPI connects to PostgreSQL.
+
+From the repository root:
+
+```bash
+docker compose build
+docker compose run --rm backend alembic upgrade head
+docker compose up -d
+curl http://localhost:8080/api/health
+```
+
+The health response should contain `"status":"ok"`. Open
+`http://localhost:8080` to verify the React application is being served by
+Nginx.
+
+This validates the application containers and database wiring. It does not run
+the live regression sandbox: the backend image intentionally has no Docker
+socket, Docker credentials, or host repository mount.
+
 ## One-command rehearsal
 
 From the repository root:
@@ -24,6 +46,11 @@ python -m lou.verification.int003
 ```
 
 The controller starts an isolated PostgreSQL container, seeds the fixture, runs baseline and candidate verification, applies the recorded fix, and verifies the fix independently.
+
+This remains the core live demo path. It uses the existing backend
+infrastructure Compose file because the controller creates disposable sandbox
+containers. Stop the root application stack first if it is running and both
+stacks would otherwise compete for the same host ports or fixture network.
 
 Success prints a line beginning with `__LOU_INT003_RESULT__`. The successful result should include the query-count comparison `2 -> 51` and a succeeded status.
 
@@ -75,6 +102,15 @@ The fallback is written under `.lou/` and contains the same JSON evidence, Markd
 7. End on the persisted report and decision.
 
 ## Cleanup
+
+Stop the full application stack from the repository root with:
+
+```bash
+docker compose down
+```
+
+This preserves named volumes. Add `-v` only when deliberately deleting the
+containerized PostgreSQL data and stored artifacts.
 
 The one-command rehearsal leaves its isolated container running for inspection. Remove it when finished:
 
