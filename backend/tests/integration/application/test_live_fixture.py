@@ -23,6 +23,7 @@ from lou.persistence.models import (
     LouDecisionRecord,
     VerificationRunRecord,
 )
+from lou.reporting import EvidenceReportReader
 from lou.repository import resolve_repository_revisions
 
 pytestmark = pytest.mark.integration
@@ -70,6 +71,16 @@ def test_live_fixture_persists_two_phase_regression(tmp_path: Path) -> None:
     assert candidate.metrics["baseline_query_count"] == 2
     assert candidate.metrics["candidate_query_count"] == 51
     assert candidate.metrics["query_count_delta"] == 49
+
+    # A new reader models process restart: it reads only persisted rows and
+    # hashed artifacts, never the application service's in-memory state.
+    report = EvidenceReportReader(create_session_factory(settings), settings.artifact_root).read(
+        result.analysis_run_id
+    )
+    rendered = report.render_json()
+    assert '"query_count_delta": 49.0' in rendered
+    assert '"runtime-regression"' in rendered
+    assert report.render_json() == rendered
 
     factory = create_session_factory(settings)
     with factory() as session:

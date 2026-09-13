@@ -9,6 +9,7 @@ from typing import Any
 
 import typer
 from rich.console import Console
+from sqlalchemy.exc import SQLAlchemyError
 
 from lou.application import AnalysisRequest, AnalysisResult, build_fixture_service
 from lou.core.errors import LouError
@@ -123,7 +124,7 @@ def report(
             file.write_text(rendered, encoding="utf-8")
         else:
             console.print(rendered, end="")
-    except (OSError, ReportError):
+    except (OSError, ReportError, SQLAlchemyError):
         console.print("report unavailable; review the run ID and local artifacts")
         raise typer.Exit(code=3) from None
 
