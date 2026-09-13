@@ -1,5 +1,7 @@
 """Bounded agent context and offline provider adapter."""
 
+from typing import TYPE_CHECKING, Any
+
 from lou.agents.context import (
     AgentContextBundle,
     BundleBudget,
@@ -8,7 +10,6 @@ from lou.agents.context import (
     RepositoryText,
     build_context_bundle,
 )
-from lou.agents.live_provider import GeminiProposal, GeminiProvider
 from lou.agents.orchestration import (
     DeterministicMockVerifier,
     OrchestrationInputs,
@@ -32,6 +33,9 @@ from lou.agents.provider import (
     ProviderRequest,
     ProviderResponse,
 )
+
+if TYPE_CHECKING:
+    from lou.agents.live_provider import GeminiProposal, GeminiProvider
 
 __all__ = [
     "AgentAdapter",
@@ -60,3 +64,13 @@ __all__ = [
     "build_context_bundle",
     "validate_patch",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    """Load the optional Gemini SDK only when callers explicitly request it."""
+
+    if name in {"GeminiProposal", "GeminiProvider"}:
+        from lou.agents import live_provider
+
+        return getattr(live_provider, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
