@@ -8,6 +8,15 @@ from lou.agents.context import (
     RepositoryText,
     build_context_bundle,
 )
+from lou.agents.orchestration import (
+    DeterministicMockVerifier,
+    OrchestrationInputs,
+    OrchestrationLimits,
+    OrchestrationState,
+    RemediationOrchestrator,
+    ValidatedPatch,
+    Verifier,
+)
 from lou.agents.patch_validation import (
     ParsedPatchFile,
     PatchRejection,
@@ -30,7 +39,11 @@ __all__ = [
     "BundleBudget",
     "BundleItem",
     "DeterministicMockProvider",
+    "DeterministicMockVerifier",
     "OmittedContext",
+    "OrchestrationInputs",
+    "OrchestrationLimits",
+    "OrchestrationState",
     "ParsedPatchFile",
     "PatchRejection",
     "PatchValidationLimits",
@@ -38,6 +51,9 @@ __all__ = [
     "ProviderRequest",
     "ProviderResponse",
     "RepositoryText",
+    "RemediationOrchestrator",
+    "ValidatedPatch",
+    "Verifier",
     "build_context_bundle",
     "validate_patch",
 ]
