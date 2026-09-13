@@ -38,6 +38,9 @@ packages = ["apps", "contracts", "lou"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+  "integration: tests requiring a local PostgreSQL service",
+]
 
 [tool.ruff]
 target-version = "py311"
