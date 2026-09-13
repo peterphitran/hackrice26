@@ -28,8 +28,38 @@ uvicorn apps.api.main:app --reload      # run the local API
 lou doctor                              # display safe local configuration
 ```
 
+The full containerized application stack is managed from the repository root:
+
+```bash
+docker compose build
+docker compose run --rm backend alembic upgrade head
+docker compose up -d
+curl http://localhost:8080/api/health
+docker compose down
+```
+
+Nginx serves the frontend on `http://localhost:8080` and proxies `/api/` to
+the internal FastAPI service. The backend connects to PostgreSQL using the
+Compose service name `postgres`; the backend port is not published to the host.
+The root Compose stack is for the frontend/API/PostgreSQL deployment path.
+
+The live fixture demo remains a separate host-side workflow:
+
+```bash
+cd backend
+python -m lou.verification.int003
+```
+
+It launches disposable Docker sandbox containers through the existing
+`backend/infra/compose.yaml` infrastructure. The application backend image
+must not receive `/var/run/docker.sock`, Docker credentials, or arbitrary host
+repository mounts. Do not treat the containerized API smoke test as proof that
+the live sandbox demo ran.
+
 PostgreSQL 16 in Docker Compose is the project database. Do not substitute SQLite for application
-persistence or the checkout regression benchmark without an approved contract change.
+persistence or the checkout regression benchmark without an approved contract change. The root
+Compose file is the canonical full-application stack; `backend/infra/compose.yaml` remains the
+backend-only and fixture-sandbox infrastructure path.
 
 ## Coding Style & Naming Conventions
 
@@ -55,4 +85,6 @@ for user-interface changes.
 ## Security & Configuration
 
 Copy `.env.example` to `.env`; never commit credentials, raw environment dumps, `.lou/` artifacts,
-or nested fixture `.git` directories. Sandboxes must not receive Docker sockets or credentials.
+or nested fixture `.git` directories. Sandboxes and the application backend must not receive Docker
+sockets or credentials. Use the Nginx `/api/` proxy for browser-to-API traffic; browser code should
+not call the internal Docker hostname `http://backend:8000` directly.
