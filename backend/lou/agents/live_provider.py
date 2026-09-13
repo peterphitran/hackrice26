@@ -152,6 +152,16 @@ class GeminiProvider:
 
     name = "gemini"
 
+    def __init__(self) -> None:
+        # google-genai 2.x closes a Client once nothing references it, so an inline
+        # genai.Client().interactions.create(...) can be collected mid-request.
+        self._client: Any | None = None
+
+    def _get_client(self) -> Any:
+        if self._client is None:
+            self._client = genai.Client()
+        return self._client
+
     def call(self, request: ProviderRequest) -> ProviderResponse:
         start = time.perf_counter()
 
@@ -176,7 +186,7 @@ class GeminiProvider:
                 else "Repair one evidenced file. Return its complete corrected source in JSON."
             )
             model = get_agent_settings().agent_model
-            interaction = genai.Client().interactions.create(
+            interaction = self._get_client().interactions.create(
                 model=model,
                 input=evidence,
                 system_instruction=f"{instructions}\n{operation_instruction}",

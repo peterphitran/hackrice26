@@ -9,9 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-import httpx
 import pytest
-from google.genai import _interactions as sdk_errors
 from pydantic import BaseModel
 
 from contracts import (
@@ -206,20 +204,27 @@ def test_schema_failure_and_truncated_or_empty_output_are_abandoned(
         assert GeminiProvider().call(request).result.metadata["abandon_reason"] == reason
 
 
+class _QuotaExhausted(Exception):
+    """Any SDK error carrying an HTTP 429, however the SDK spells its class name."""
+
+    status_code = 429
+
+
+class _Unauthorized(Exception):
+    status_code = 401
+
+
 def test_sdk_rate_limit_and_network_failures_are_distinct(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Matched on error shape rather than SDK class identity: google-genai moved its
+    # exception classes between 1.x and 2.x, and the mapping must survive that.
     request = ProviderRequest(operation="diagnose", bundle=_bundle())
-    http_request = httpx.Request("POST", "https://generativelanguage.googleapis.com")
-    quota = sdk_errors.RateLimitError(
-        "quota exhausted", response=httpx.Response(429, request=http_request), body=None
-    )
-    network = sdk_errors.APIConnectionError(request=http_request)
-    timeout = sdk_errors.APITimeoutError(request=http_request)
     for error, reason in [
-        (quota, "rate_limit_or_quota_exhausted"),
-        (network, "network_failure"),
-        (timeout, "provider_timeout"),
+        (_QuotaExhausted("quota exhausted"), "rate_limit_or_quota_exhausted"),
+        (_Unauthorized("bad key"), "invalid_api_key"),
+        (ConnectionError("connection reset"), "network_failure"),
+        (TimeoutError("deadline exceeded"), "provider_timeout"),
     ]:
         _client(monkeypatch, error)
         assert GeminiProvider().call(request).result.metadata["abandon_reason"] == reason
@@ -241,11 +246,7 @@ def test_live_selection_without_key_falls_back_to_mock(
 def test_live_selection_falls_back_when_quota_is_exhausted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    http_request = httpx.Request("POST", "https://generativelanguage.googleapis.com")
-    quota = sdk_errors.RateLimitError(
-        "quota exhausted", response=httpx.Response(429, request=http_request), body=None
-    )
-    _client(monkeypatch, quota)
+    _client(monkeypatch, _QuotaExhausted("quota exhausted"))
     monkeypatch.setenv("LOU_AGENT_PROVIDER", "gemini")
 
     response = AgentAdapter().call(ProviderRequest(operation="patch", bundle=_bundle()))
