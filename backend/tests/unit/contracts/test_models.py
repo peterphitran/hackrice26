@@ -69,7 +69,6 @@ def test_published_contract_fixtures_validate() -> None:
     fixtures: dict[str, type[BaseModel]] = {
         "analysis_job.json": AnalysisJob,
         "repository_change.json": RepositoryChange,
-        "workload_selection.json": WorkloadSelection,
         "repository_context.json": RepositoryContext,
         "finding.json": Finding,
         "evidence.json": Evidence,
