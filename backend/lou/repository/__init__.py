@@ -22,6 +22,12 @@ from lou.repository.traversal import (
     build_repository_context,
     traverse_repository_impact,
 )
+from lou.repository.workloads import (
+    REGISTRY_REVISION,
+    fixture_commands,
+    fixture_workloads,
+    select_fixture_workloads,
+)
 
 __all__ = [
     "ResolvedRevisions",
@@ -40,4 +46,8 @@ __all__ = [
     "TraversalLimits",
     "build_repository_context",
     "traverse_repository_impact",
+    "REGISTRY_REVISION",
+    "fixture_commands",
+    "fixture_workloads",
+    "select_fixture_workloads",
 ]

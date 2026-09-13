@@ -102,12 +102,13 @@ def compare_candidate(
     regression = query_regression or latency_regression
 
     status: Literal["passed", "failed", "inconclusive"]
-    # Query count is an exact application-level observation in the local
-    # fixture.  Timing variance must prevent a latency-only conclusion, but it
-    # must not hide a separately proven N+1 query regression.
-    if tool_failure or not enough_samples or (noisy and not query_regression):
+    if tool_failure or not enough_samples:
         status = "inconclusive"
-    elif classes["candidate_only"] or regression:
+    elif classes["candidate_only"] or query_regression:
+        status = "failed"
+    elif noisy:
+        status = "inconclusive"
+    elif latency_regression:
         status = "failed"
     else:
         status = "passed"
@@ -201,6 +202,10 @@ def compare_candidate(
         findings=[finding.finding_id] if finding else [],
         evidence_ids=[evidence.evidence_id],
         artifact_uri=artifact_uri,
-        metadata={"thresholds": thresholds, "failure_classification": classes},
+        metadata={
+            "thresholds": thresholds,
+            "failure_classification": classes,
+            "excessive_variance": noisy,
+        },
     )
     return DifferentialResult(verification, evidence, finding)

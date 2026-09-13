@@ -23,30 +23,21 @@ from lou.core.settings import Settings
 from lou.decision.autonomy import decide_autonomy
 from lou.policies import AutonomyPolicy
 from lou.repository import (
-    ImpactTraversal,
+    REGISTRY_REVISION,
     TraversalLimits,
+    build_repository_context,
     build_repository_graph,
     parse_repository_changes,
+    select_fixture_workloads,
     traverse_repository_impact,
 )
+from lou.repository import fixture_commands as fixture_commands
+from lou.repository import fixture_workloads as fixture_workloads
 from lou.repository.symbols import extract_changed_symbols
 from lou.scoring import DebtInputs, RemediationInputs
 from lou.verification import PhaseObservations, compare_candidate, disposable_worktree
 
-_REGISTRY_REVISION = "broken-store-v1"
-_PYTEST_ID = "checkout-pytest"
-_K6_ID = "checkout-load"
-_PYTEST_PATH = "tests/test_checkout.py"
-_K6_PATH = "loadtests/checkout.js"
-_PYTEST_COMMAND = (
-    "python",
-    "-m",
-    "pytest",
-    "-q",
-    "-p",
-    "no:cacheprovider",
-    _PYTEST_PATH,
-)
+_REGISTRY_REVISION = REGISTRY_REVISION
 _PHASE = Literal["baseline", "candidate"]
 
 
@@ -64,43 +55,6 @@ class PhaseRunner(Protocol):
         job: AnalysisJob,
         artifact_dir: Path,
     ) -> PhaseObservations: ...
-
-
-def fixture_workloads() -> tuple[WorkloadSelection, ...]:
-    """Return the only two workloads allowed in the first local slice."""
-
-    return (
-        WorkloadSelection(
-            workload_id=_PYTEST_ID,
-            workload_type="pytest",
-            definition_path=_PYTEST_PATH,
-            phase="candidate",
-            reason="Fixture checkout correctness gate.",
-            confidence=1.0,
-            metadata={
-                "registry_revision": _REGISTRY_REVISION,
-                "test_path": _PYTEST_PATH,
-            },
-        ),
-        WorkloadSelection(
-            workload_id=_K6_ID,
-            workload_type="k6",
-            definition_path=_K6_PATH,
-            phase="candidate",
-            reason="Fixture checkout query-count workload.",
-            confidence=1.0,
-            metadata={
-                "registry_revision": _REGISTRY_REVISION,
-                "endpoint": "POST /checkout",
-            },
-        ),
-    )
-
-
-def fixture_commands() -> dict[str, tuple[str, ...]]:
-    """Return trusted command arrays, never executable CLI input."""
-
-    return {_PYTEST_ID: _PYTEST_COMMAND}
 
 
 @dataclass(frozen=True)
@@ -128,7 +82,11 @@ class FixtureRepositoryIntelligence:
             artifact_root=self.artifact_root,
         )
         traversal = traverse_repository_impact(snapshot, limits=self.traversal_limits)
-        context = _context_from_traversal(change, traversal, run_id, snapshot.artifact_uri)
+        context = build_repository_context(
+            traversal,
+            repository_id=change.repository_id,
+            commit_sha=change.candidate_commit_sha,
+        )
         fallback_workload_ids = self.fallback_workload_ids if snapshot.completeness < 1 else ()
         selected = _select_fixture_workloads(
             context,
@@ -137,9 +95,15 @@ class FixtureRepositoryIntelligence:
         context = context.model_copy(
             update={
                 "selected_workload_ids": [item.workload_id for item in selected],
-                "selection_reasons": {item.workload_id: item.reason for item in selected},
+                "selection_reasons": {
+                    **context.selection_reasons,
+                    **{item.workload_id: item.reason for item in selected},
+                },
                 "metadata": {
                     **context.metadata,
+                    "registry_revision": _REGISTRY_REVISION,
+                    "analysis_run_id": run_id,
+                    "graph_artifact_uri": snapshot.artifact_uri,
                     "fallback_workload_ids": list(fallback_workload_ids),
                 },
             }
@@ -314,73 +278,14 @@ class FixtureDecisionAdapter:
         )
 
 
-def _context_from_traversal(
-    change: RepositoryChange,
-    traversal: ImpactTraversal,
-    run_id: str,
-    artifact_uri: str,
-) -> RepositoryContext:
-    """Project only graph-observed relationships into the shared context contract."""
-
-    affected_symbols = [
-        item.key for item in traversal.nodes if item.node_type in {"FUNCTION", "CLASS"}
-    ]
-    tests = [item.path or item.key for item in traversal.by_type("TEST")]
-    endpoints = [item.key for item in traversal.by_type("ENDPOINT")]
-    tables = [item.key for item in traversal.nodes if item.node_type == "DATABASE_TABLE"]
-    return RepositoryContext(
-        repository_id=change.repository_id,
-        commit_sha=change.candidate_commit_sha,
-        changed_symbols=change.changed_symbols,
-        affected_symbols=affected_symbols,
-        affected_tests=tests,
-        affected_endpoints=endpoints,
-        affected_data_dependencies=tables,
-        unresolved_relationships=list(traversal.unresolved_relationships),
-        completeness=traversal.completeness,
-        metadata={
-            "registry_revision": _REGISTRY_REVISION,
-            "analysis_run_id": run_id,
-            "graph_artifact_uri": artifact_uri,
-            "impact_traversal": traversal.payload(),
-        },
-    )
-
-
 def _select_fixture_workloads(
     context: RepositoryContext,
     *,
     fallback_workload_ids: tuple[str, ...] = (),
 ) -> tuple[WorkloadSelection, ...]:
-    """Select only trusted registry entries that context evidence reaches."""
+    """Delegate registry resolution to repository intelligence."""
 
-    selected: list[WorkloadSelection] = []
-    available = {item.workload_id: item for item in fixture_workloads()}
-    fallback = set(fallback_workload_ids)
-    for workload in fixture_workloads():
-        test_path = workload.metadata.get("test_path")
-        endpoint = workload.metadata.get("endpoint")
-        graph_selected = (
-            test_path in context.affected_tests or endpoint in context.affected_endpoints
-        )
-        if graph_selected:
-            selected.append(workload)
-        elif workload.workload_id in fallback:
-            selected.append(
-                workload.model_copy(
-                    update={
-                        "reason": (
-                            "Configured fallback because repository graph extraction is incomplete."
-                        ),
-                        "confidence": 0.0,
-                        "metadata": {**workload.metadata, "fallback": True},
-                    }
-                )
-            )
-    unknown = sorted(set(context.selected_workload_ids) - set(available))
-    if unknown:
-        raise ValueError(f"unknown workload IDs in repository context: {', '.join(unknown)}")
-    return tuple(selected)
+    return select_fixture_workloads(context, fallback_workload_ids=fallback_workload_ids)
 
 
 def _analysis_job(
