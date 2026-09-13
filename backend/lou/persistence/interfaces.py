@@ -12,6 +12,13 @@ TriggerType = Literal["cli", "api", "github_webhook", "fixture"]
 Phase = Literal["baseline", "candidate", "fix"]
 VerificationStatus = Literal["queued", "running", "passed", "failed", "inconclusive"]
 Severity = Literal["info", "low", "medium", "high", "critical"]
+RemediationProvider = Literal["mock", "gemini"]
+RemediationStatus = Literal[
+    "queued", "running", "succeeded", "failed", "abandoned", "cancelled"
+]
+RemediationStage = Literal[
+    "context", "diagnose", "patch", "validate", "verify", "decide", "stopped"
+]
 
 
 class PersistenceError(Exception):
@@ -86,6 +93,60 @@ class DecisionInput:
 class DecisionView:
     id: UUID
     value: DecisionInput
+
+
+@dataclass(frozen=True)
+class RemediationRunInput:
+    """Immutable identity and limits for one agent remediation workflow."""
+
+    analysis_run_id: UUID
+    input_fingerprint: str
+    deduplication_key: str
+    provider: RemediationProvider
+    policy_revision: str
+    limits: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class RemediationRunView:
+    """Session-independent persisted state at an orchestration boundary."""
+
+    id: UUID
+    input: RemediationRunInput
+    status: RemediationStatus
+    stage: RemediationStage
+    snapshot: dict[str, object] = field(default_factory=dict)
+    attempt_count: int = 0
+    tokens_spent: int = 0
+    estimated_cost_usd: float = 0.0
+    termination_reason: str | None = None
+    error_message: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class RemediationAttemptInput:
+    """Append-only record of one agent stage outcome."""
+
+    remediation_run_id: UUID
+    attempt_key: str
+    attempt_number: int
+    stage: RemediationStage
+    outcome: str
+    patch_sha256: str | None = None
+    agent_result: dict[str, object] = field(default_factory=dict)
+    validation: dict[str, object] = field(default_factory=dict)
+    details: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class RemediationAttemptView:
+    id: UUID
+    value: RemediationAttemptInput
+    created_at: datetime | None = None
 
 
 class AnalysisRunRepository(Protocol):
@@ -177,3 +238,46 @@ class DecisionRepository(Protocol):
     def save(self, value: DecisionInput) -> tuple[DecisionView, bool]: ...
 
     def get_for_run(self, analysis_run_id: UUID) -> DecisionView | None: ...
+
+
+class RemediationRunRepository(Protocol):
+    """Durable orchestration state without ORM/session leakage."""
+
+    def create_or_get(self, value: RemediationRunInput) -> tuple[RemediationRunView, bool]: ...
+
+    def get(self, remediation_run_id: UUID) -> RemediationRunView | None: ...
+
+    def save_snapshot(
+        self,
+        remediation_run_id: UUID,
+        *,
+        status: RemediationStatus,
+        stage: RemediationStage,
+        snapshot: dict[str, object],
+        attempt_count: int,
+        tokens_spent: int,
+        estimated_cost_usd: float,
+        termination_reason: str | None = None,
+        error_message: str | None = None,
+    ) -> RemediationRunView: ...
+
+    def append_attempt(
+        self, value: RemediationAttemptInput
+    ) -> tuple[RemediationAttemptView, bool]: ...
+
+    def persist_stage(
+        self,
+        remediation_run_id: UUID,
+        *,
+        status: RemediationStatus,
+        stage: RemediationStage,
+        snapshot: dict[str, object],
+        attempt_count: int,
+        tokens_spent: int,
+        estimated_cost_usd: float,
+        attempt: RemediationAttemptInput,
+        termination_reason: str | None = None,
+        error_message: str | None = None,
+    ) -> tuple[RemediationRunView, RemediationAttemptView, bool]: ...
+
+    def list_attempts(self, remediation_run_id: UUID) -> list[RemediationAttemptView]: ...

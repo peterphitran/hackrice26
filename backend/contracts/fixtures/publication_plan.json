@@ -1,0 +1,15 @@
+{
+  "schema_version": "1",
+  "publication_plan_id": "publication_plan_demo_001",
+  "agent_run_id": "agent_run_demo_001",
+  "analysis_run_id": "run_demo_001",
+  "decision_id": "decision_demo_001",
+  "repository": "local/broken-store",
+  "base_branch": "main",
+  "branch_name": "lou/fix-agent-run-demo-001",
+  "title": "Lou: restore batched checkout lookup",
+  "body": "Verified locally by Lou.",
+  "patch_sha256": "7e308ad1e362bee2af8a68cd2ebe0a2971ba3e3c494745d102107b7d1a4f963b",
+  "evidence_report_sha256": "9a0fdb44e7d5d2d0b117c4b98a7e9cdd783b40a5786075f8ee53b3dc816d3c48",
+  "metadata": {"dry_run": true}
+}

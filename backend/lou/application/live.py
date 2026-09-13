@@ -22,6 +22,7 @@ from lou.application.analysis import AnalysisApplicationService, AnalysisRequest
 from lou.core.settings import Settings
 from lou.decision.autonomy import decide_autonomy
 from lou.policies import AutonomyPolicy
+from lou.prediction import predict_impact
 from lou.repository import (
     REGISTRY_REVISION,
     TraversalLimits,
@@ -35,6 +36,7 @@ from lou.repository import fixture_commands as fixture_commands
 from lou.repository import fixture_workloads as fixture_workloads
 from lou.repository.symbols import extract_changed_symbols
 from lou.scoring import DebtInputs, RemediationInputs
+from lou.telemetry import build_telemetry
 from lou.verification import PhaseObservations, compare_candidate, disposable_worktree
 
 _REGISTRY_REVISION = REGISTRY_REVISION
@@ -92,6 +94,14 @@ class FixtureRepositoryIntelligence:
             context,
             fallback_workload_ids=fallback_workload_ids,
         )
+        prediction = predict_impact(
+            analysis_run_id=run_id,
+            change=change,
+            snapshot=snapshot,
+            traversal=traversal,
+            workloads=selected,
+            repository_root=request.repository_path,
+        )
         context = context.model_copy(
             update={
                 "selected_workload_ids": [item.workload_id for item in selected],
@@ -105,6 +115,7 @@ class FixtureRepositoryIntelligence:
                     "analysis_run_id": run_id,
                     "graph_artifact_uri": snapshot.artifact_uri,
                     "fallback_workload_ids": list(fallback_workload_ids),
+                    "impact_prediction": prediction.model_dump(mode="json"),
                 },
             }
         )
@@ -232,6 +243,7 @@ class FixtureDecisionAdapter:
         run_id: str,
         baseline: VerificationBundle,
         candidate: VerificationBundle,
+        context: RepositoryContext | None = None,
     ) -> LouDecision:
         classification = str(candidate.result.metadata.get("classification", "clean"))
         if classification == "inconclusive":
@@ -241,6 +253,9 @@ class FixtureDecisionAdapter:
             "runtime_impact", 1.0 if classification == "runtime_regression" else 0.0
         )
         debt_values.setdefault("evidence_confidence", 1.0)
+        if context is not None:
+            for name, observed in _observed_debt_inputs(context).items():
+                debt_values.setdefault(name, observed)
         remediation_values = _configured_values(request.configuration, "remediation_inputs")
         decision = decide_autonomy(
             decision_id=f"decision_{run_id}",
@@ -276,6 +291,25 @@ class FixtureDecisionAdapter:
                 },
             }
         )
+
+
+def _observed_debt_inputs(context: RepositoryContext) -> dict[str, float]:
+    """Derive the debt features this slice actually measures; omit the rest.
+
+    Only graph-backed observations are returned. complexity and coverage_deficit are
+    deliberately absent because nothing here measures them — the scorer treats missing
+    features as unknown and lowers confidence, which is the honest outcome.
+    """
+    reached = len(context.affected_symbols)
+    changed = max(len(context.changed_symbols), 1)
+    return {
+        # How far the change reaches through the call graph, saturating at 10 symbols.
+        "graph_centrality": min(reached / 10.0, 1.0),
+        # A change on a served endpoint sits on a user-facing path.
+        "path_criticality": 1.0 if context.affected_endpoints else 0.4,
+        # Symbols touched relative to a 5-symbol repair budget.
+        "estimated_patch_size": min(changed / 5.0, 1.0),
+    }
 
 
 def _select_fixture_workloads(
@@ -392,4 +426,11 @@ def build_fixture_service(settings: Settings) -> AnalysisApplicationService:
             settings.artifact_root,
         ),
         FixtureDecisionAdapter(),
+        build_telemetry(
+            exporter=settings.telemetry_exporter,
+            endpoint=settings.telemetry_otlp_endpoint,
+            timeout_seconds=settings.telemetry_export_timeout_seconds,
+            sample_rate=settings.telemetry_sample_rate,
+            max_spans=settings.telemetry_max_spans_per_run,
+        ),
     )

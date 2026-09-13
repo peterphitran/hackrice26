@@ -6,6 +6,7 @@ import pytest
 from contracts import (
     Evidence,
     Finding,
+    ImpactPrediction,
     LouDecision,
     RepositoryChange,
     RepositoryContext,
@@ -19,6 +20,7 @@ from lou.application.analysis import (
     RunSnapshot,
     VerificationBundle,
 )
+from lou.telemetry import InMemoryTelemetry, RuntimeObservation
 
 
 class Store:
@@ -27,6 +29,7 @@ class Store:
         self.reused_status = reused_status
         self.calls: list[str] = []
         self.finished: list[str] = []
+        self.telemetry: list[RuntimeObservation] = []
 
     def create_or_get(self, request: AnalysisRequest, deduplication_key: str) -> RunSnapshot:
         self.calls.append("initialize")
@@ -42,11 +45,17 @@ class Store:
     ) -> None:
         self.calls.append("context")
 
+    def record_prediction(self, run_id: str, prediction: ImpactPrediction) -> None:
+        self.calls.append("prediction")
+
     def record_verification(self, run_id: str, bundle: VerificationBundle) -> None:
         self.calls.append(f"persist-{bundle.result.phase}")
 
     def record_decision(self, run_id: str, decision: LouDecision) -> None:
         self.calls.append("persist-decision")
+
+    def record_telemetry(self, run_id: str, observations: tuple[RuntimeObservation, ...]) -> None:
+        self.telemetry.extend(observations)
 
     def finish(self, run_id: str, status: AnalysisStatus, message: str | None = None) -> None:
         self.calls.append("finalize")
@@ -230,6 +239,29 @@ def test_service_runs_all_seven_stages_in_order(tmp_path: Path) -> None:
         "persist-decision",
         "finalize",
     ]
+
+
+def test_telemetry_is_supporting_evidence_and_does_not_change_the_verdict(tmp_path: Path) -> None:
+    calls: list[str] = []
+    store = Store()
+    service = AnalysisApplicationService(
+        store,
+        Intelligence(calls),
+        Selector(calls, (_workload(),)),
+        Verification(calls),
+        Decision(calls),
+        InMemoryTelemetry(),
+    )
+
+    result = service.run(_request(tmp_path))
+
+    assert result.status == "succeeded"
+    assert {item.span_name for item in store.telemetry} >= {
+        "lou.analysis",
+        "lou.workload.execute",
+        "lou.sandbox.execute",
+        "lou.verification.compare",
+    }
 
 
 def test_service_returns_existing_run_without_repeating_work(tmp_path: Path) -> None:

@@ -1,0 +1,8 @@
+{
+  "revision": "impact-fixture-v1",
+  "minimum_precision": 0.50,
+  "minimum_recall": 0.80,
+  "maximum_false_negative_rate": 0.20,
+  "calibration_bins": 5,
+  "required_workloads_must_be_preserved": true
+}

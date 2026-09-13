@@ -5,6 +5,21 @@ evidence-driven analysis orchestration, and a narrow live `lou analyze` fixture 
 
 See the [foundation specification](../docs/hackathon/foundation/README.md) for scope and acceptance criteria.
 
+## Optional Local Telemetry
+
+Telemetry is disabled by default and is supporting evidence only: a collector
+outage cannot change a verification result. Start the local collector only when
+rehearsing runtime correlation:
+
+```bash
+docker compose -f infra/compose.yaml --profile telemetry up -d otel-collector
+python -m lou.telemetry.int007
+docker compose -f infra/compose.yaml --profile telemetry down
+```
+
+Set `LOU_TELEMETRY_EXPORTER=memory` for persisted safe summaries, or `otlp` to
+mirror them to the local collector. See `demo/README.md` for the full rehearsal.
+
 ## Prerequisites
 
 - Python 3.11 or newer; Python 3.13 is recommended

@@ -30,6 +30,25 @@ show the live command first; if Docker or optional integrations fail, open the
 saved Markdown report and state that it is a recorded output of the same report
 reader.
 
+## Rehearse local runtime correlation (M7)
+
+M7 is opt-in. It records only allowlisted identifiers and query summaries; it
+does not send repository source, SQL values, headers, bodies, or environment
+values to the collector. Start the disposable local collector, then run its
+healthy and intentionally unavailable-exporter checks:
+
+```bash
+cd backend
+docker compose -f infra/compose.yaml --profile telemetry up -d otel-collector
+python -m lou.telemetry.int007
+docker compose -f infra/compose.yaml --profile telemetry down
+```
+
+The controller prints `__LOU_M7_RESULT__`. A normal analysis keeps telemetry
+disabled. To retain safe runtime-observation evidence in a fixture analysis,
+explicitly set `LOU_TELEMETRY_EXPORTER=memory` or `otlp`; a collector outage is
+recorded as unavailable observability and never changes the verification result.
+
 ## Cross-machine check
 
 On a machine that has Python dependencies and Docker Desktop available, run:
