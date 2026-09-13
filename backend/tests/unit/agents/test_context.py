@@ -143,3 +143,24 @@ def test_supplied_diff_is_included_as_untrusted_data() -> None:
     assert diff.trust == "untrusted_repository"
     assert diff.payload["untrusted_repository_data"] == diff_text
     assert "candidate_diff" not in {item.key for item in bundle.omitted}
+
+
+def test_provenance_reports_live_sources_and_defaults_to_recorded() -> None:
+    records = _records()
+    bundle = build_context_bundle(*records, live_sources=["candidate_finding"])
+
+    by_key = {item.key: item for item in bundle.items}
+    assert by_key["candidate_finding"].provenance == "live"
+    assert by_key["selected_graph_context"].provenance == "recorded"
+    assert by_key["candidate_verification"].provenance == "recorded"
+    assert all(
+        item.trust == "analysis_record"
+        for item in bundle.items
+        if not item.key.startswith("repository_text") and item.key != "candidate_diff"
+    )
+
+
+def test_unlabelled_sources_are_never_reported_as_live() -> None:
+    bundle = build_context_bundle(*_records())
+
+    assert all(item.provenance == "recorded" for item in bundle.items)
