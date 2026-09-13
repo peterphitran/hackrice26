@@ -107,6 +107,9 @@ clone. Record the resulting run ID and commit SHA in the team demo notes. A
 different verdict is a failure to investigate, not a result to present as a
 regression.
 
+For a disposable clone rehearsal on the same machine, and the recorded fallback
+used during a presentation, see [demo/README.md](demo/README.md).
+
 ## PostgreSQL (optional until PF-002)
 
 ```bash
