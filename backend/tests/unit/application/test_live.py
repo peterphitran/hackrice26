@@ -212,17 +212,16 @@ def test_fixture_decision_defaults_to_report_and_can_recommend_when_policy_quali
 ) -> None:
     repository, base, candidate = fixture_repository
     request = _request(repository, base, candidate)
-    workloads = FixtureWorkloadSelector().select(
-        FixtureRepositoryIntelligence(tmp_path / "graph-artifacts").inspect(
-            request, "run-decision"
-        )[1]
+    _, context = FixtureRepositoryIntelligence(tmp_path / "graph-artifacts").inspect(
+        request, "run-decision"
     )
+    workloads = FixtureWorkloadSelector().select(context)
     verifier = FixtureVerificationAdapter(_Runner(), tmp_path / "artifacts")
     baseline = verifier.measure_baseline(request, "run-decision", workloads)
     measured = verifier.measure_candidate(request, "run-decision", workloads, baseline)
 
     assert (
-        FixtureDecisionAdapter().decide(request, "run-decision", baseline, measured).action
+        FixtureDecisionAdapter().decide(request, "run-decision", baseline, measured, context).action
         == "report"
     )
 
@@ -254,7 +253,9 @@ def test_fixture_decision_defaults_to_report_and_can_recommend_when_policy_quali
         },
     )
 
-    decision = FixtureDecisionAdapter().decide(qualified, "run-decision", baseline, measured)
+    decision = FixtureDecisionAdapter().decide(
+        qualified, "run-decision", baseline, measured, context
+    )
     assert decision.action == "recommend"
     assert decision.autonomy_level == 1
     assert decision.metadata["composition_action_cap"] == "recommend"
@@ -271,7 +272,7 @@ def test_fixture_decision_defaults_to_report_and_can_recommend_when_policy_quali
     )
     assert (
         FixtureDecisionAdapter()
-        .decide(qualified, "run-decision", baseline, candidate_test_failure)
+        .decide(qualified, "run-decision", baseline, candidate_test_failure, context)
         .action
         == "report"
     )
@@ -284,7 +285,7 @@ def test_fixture_decision_defaults_to_report_and_can_recommend_when_policy_quali
         measured.evidence,
     )
     assert (
-        FixtureDecisionAdapter().decide(qualified, "run-decision", baseline, clean).action
+        FixtureDecisionAdapter().decide(qualified, "run-decision", baseline, clean, context).action
         == "report"
     )
 
@@ -296,4 +297,4 @@ def test_fixture_decision_defaults_to_report_and_can_recommend_when_policy_quali
         measured.evidence,
     )
     with pytest.raises(ValueError, match="inconclusive evidence"):
-        FixtureDecisionAdapter().decide(qualified, "run-decision", baseline, inconclusive)
+        FixtureDecisionAdapter().decide(qualified, "run-decision", baseline, inconclusive, context)

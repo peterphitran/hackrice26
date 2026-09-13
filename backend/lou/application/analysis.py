@@ -19,9 +19,7 @@ from contracts import (
 )
 
 AnalysisStatus = Literal["succeeded", "failed", "inconclusive", "running", "cancelled"]
-RunSnapshotStatus = Literal[
-    "queued", "running", "succeeded", "failed", "cancelled", "inconclusive"
-]
+RunSnapshotStatus = Literal["queued", "running", "succeeded", "failed", "cancelled", "inconclusive"]
 MAX_CONFIGURATION_BYTES = 32_768
 
 
@@ -99,9 +97,7 @@ class AnalysisResult:
 class AnalysisStore(Protocol):
     """Persistence boundary required by the application service."""
 
-    def create_or_get(
-        self, request: AnalysisRequest, deduplication_key: str
-    ) -> RunSnapshot: ...
+    def create_or_get(self, request: AnalysisRequest, deduplication_key: str) -> RunSnapshot: ...
 
     def record_context(
         self,
@@ -160,6 +156,7 @@ class DecisionPort(Protocol):
         run_id: str,
         baseline: VerificationBundle,
         candidate: VerificationBundle,
+        context: RepositoryContext,
     ) -> LouDecision: ...
 
 
@@ -240,7 +237,7 @@ class AnalysisApplicationService:
                     verification_results,
                 )
 
-            final_decision = self._decision.decide(request, run_id, baseline, candidate)
+            final_decision = self._decision.decide(request, run_id, baseline, candidate, context)
             self._store.record_decision(run_id, final_decision)
             stages.append("decide")
             return self._finish(
