@@ -196,6 +196,109 @@ class RuntimeObservation(ContractModel):
         return value
 
 
+class DeploymentTarget(ContractModel):
+    """A non-secret destination for an M8 deployment operation."""
+
+    environment: Literal["staging", "production"]
+    adapter: Literal["local", "argo_rollouts"]
+    namespace: str = Field(min_length=1, max_length=128)
+    service: str = Field(min_length=1, max_length=128)
+
+
+class Release(ContractModel):
+    """An immutable request to deploy one verified commit."""
+
+    release_id: str = Field(min_length=1, max_length=128)
+    repository_id: str = Field(min_length=1, max_length=255)
+    commit_sha: str = Field(min_length=7, max_length=255)
+    analysis_run_id: str = Field(min_length=1, max_length=255)
+    artifact_uri: str | None = Field(default=None, max_length=1024)
+    target: DeploymentTarget
+    requested_by: str = Field(min_length=1, max_length=128)
+
+    @field_validator("artifact_uri")
+    @classmethod
+    def reject_credential_bearing_artifact_uri(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        lower_value = value.lower()
+        if "@" in value or any(
+            token in lower_value for token in ("token=", "secret=", "password=")
+        ):
+            raise ValueError("artifact_uri cannot contain credentials or secret query values")
+        return value
+
+
+class CanaryWindow(ContractModel):
+    release_id: str = Field(min_length=1, max_length=128)
+    started_at: datetime
+    deadline_at: datetime
+    minimum_samples: int = Field(ge=1, le=100_000)
+    observed_samples: int = Field(ge=0, le=100_000, default=0)
+    status: Literal["pending", "observing", "complete", "expired"] = "pending"
+
+    @field_validator("deadline_at")
+    @classmethod
+    def deadline_must_follow_start(cls, value: datetime, info: Any) -> datetime:
+        started_at = info.data.get("started_at")
+        if isinstance(started_at, datetime) and value <= started_at:
+            raise ValueError("deadline_at must be after started_at")
+        return value
+
+
+class SLOPolicy(ContractModel):
+    policy_revision: str = Field(min_length=1, max_length=128)
+    max_error_rate: float = Field(ge=0, le=1)
+    max_latency_ms: float = Field(gt=0, le=600_000)
+    minimum_samples: int = Field(ge=1, le=100_000)
+    telemetry_max_age_seconds: int = Field(ge=1, le=86_400)
+
+
+class CanaryObservation(ContractModel):
+    release_id: str = Field(min_length=1, max_length=128)
+    observed_at: datetime
+    sample_count: int = Field(ge=0, le=100_000)
+    error_rate: float | None = Field(default=None, ge=0, le=1)
+    latency_ms: float | None = Field(default=None, ge=0, le=600_000)
+    telemetry_available: bool
+    telemetry_age_seconds: int | None = Field(default=None, ge=0, le=86_400)
+    validation_passed: bool
+
+
+class DeploymentDecision(ContractModel):
+    release_id: str = Field(min_length=1, max_length=128)
+    action: Literal["promote", "pause", "rollback"]
+    policy_revision: str = Field(min_length=1, max_length=128)
+    reasons: tuple[str, ...] = Field(min_length=1, max_length=24)
+    decided_at: datetime
+
+
+class DeploymentEvidence(ContractModel):
+    """Append-only evidence for one release transition; contains no credentials."""
+
+    evidence_id: str = Field(min_length=1, max_length=128)
+    release_id: str = Field(min_length=1, max_length=128)
+    analysis_run_id: str = Field(min_length=1, max_length=255)
+    commit_sha: str = Field(min_length=7, max_length=255)
+    event: Literal["released", "validated", "observed", "promoted", "paused", "rolled_back"]
+    actor: str = Field(min_length=1, max_length=128)
+    collected_at: datetime
+    decision: DeploymentDecision | None = None
+    verification_run_ids: tuple[str, ...] = ()
+    trace_ids: tuple[str, ...] = ()
+    metadata: dict[str, str | int | float | bool] = Field(default_factory=dict)
+
+    @field_validator("metadata")
+    @classmethod
+    def reject_secret_like_metadata(
+        cls, value: dict[str, str | int | float | bool]
+    ) -> dict[str, str | int | float | bool]:
+        forbidden = {"authorization", "credential", "password", "secret", "token"}
+        if any(part in key.lower() for key in value for part in forbidden):
+            raise ValueError("deployment evidence metadata cannot contain secret-like keys")
+        return value
+
+
 class VerificationResult(ContractModel):
     verification_run_id: str
     analysis_run_id: str

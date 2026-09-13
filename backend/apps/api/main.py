@@ -6,6 +6,7 @@ import hashlib
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal, Protocol
 from uuid import UUID
@@ -17,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
+from contracts import CanaryObservation, CanaryWindow, DeploymentTarget, Release, SLOPolicy
 from lou.application import (
     AnalysisRequest,
     AnalysisResult,
@@ -31,6 +33,12 @@ from lou.application.analysis import MAX_CONFIGURATION_BYTES
 from lou.core.errors import LouError
 from lou.core.settings import Settings, get_settings
 from lou.core.version import APP_VERSION
+from lou.deployment import (
+    DeploymentConflictError,
+    DeploymentJournal,
+    DeploymentService,
+    InMemoryDeploymentAdapter,
+)
 from lou.persistence.database import create_session_factory
 from lou.persistence.interfaces import AnalysisRunView, RemediationRunView
 from lou.persistence.models import LouDecisionRecord
@@ -121,6 +129,33 @@ class PublicationResponse(ApiModel):
     provider_reference: str | None = None
     decision_id: str | None = None
     message: str | None = None
+
+
+class DeploymentCreateRequest(ApiModel):
+    release_id: str = Field(min_length=1, max_length=128)
+    repository_id: str = Field(min_length=1, max_length=255)
+    commit_sha: str = Field(min_length=7, max_length=255)
+    validation_passed: bool = True
+    telemetry_available: bool = True
+    error_rate: float = Field(default=0, ge=0, le=1)
+    latency_ms: float = Field(default=100, gt=0, le=600_000)
+    sample_count: int = Field(default=20, ge=0, le=100_000)
+    complete: bool = True
+
+
+class DeploymentRollbackRequest(ApiModel):
+    reason: str = Field(min_length=1, max_length=512)
+
+
+class DeploymentResponse(ApiModel):
+    release_id: str
+    analysis_run_id: str
+    commit_sha: str
+    status: Literal["released", "paused", "promoted", "rolled_back"]
+    reused: bool
+    decision: Literal["promote", "pause", "rollback"] | None = None
+    reasons: list[str] = Field(default_factory=list)
+    evidence_count: int = Field(ge=0)
 
 
 class AnalysisService(Protocol):
@@ -264,9 +299,9 @@ def create_app(
     )
     def get_remediation(agent_run_id: UUID) -> RemediationStatusResponse | JSONResponse:
         try:
-            view = SqlAlchemyRemediationRunRepository(
-                create_session_factory(active_settings)
-            ).get(agent_run_id)
+            view = SqlAlchemyRemediationRunRepository(create_session_factory(active_settings)).get(
+                agent_run_id
+            )
         except SQLAlchemyError:
             return _error_response(
                 status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -319,10 +354,104 @@ def create_app(
             )
         return _publication_response(result)
 
+    @app.post(
+        "/analysis/{analysis_run_id}/deployments",
+        response_model=DeploymentResponse,
+        status_code=status.HTTP_202_ACCEPTED,
+        tags=["deployment"],
+    )
+    def create_deployment(
+        analysis_run_id: UUID, payload: DeploymentCreateRequest
+    ) -> DeploymentResponse | JSONResponse:
+        now = datetime.now(UTC)
+        service = _deployment_service(active_settings)
+        try:
+            release = Release(
+                release_id=payload.release_id,
+                repository_id=payload.repository_id,
+                commit_sha=payload.commit_sha,
+                analysis_run_id=str(analysis_run_id),
+                target=DeploymentTarget(
+                    environment="staging", adapter="local", namespace="lou", service="lou-demo"
+                ),
+                requested_by="lou-api",
+            )
+            service.release(release)
+            result = service.observe(
+                release_id=release.release_id,
+                window=CanaryWindow(
+                    release_id=release.release_id,
+                    started_at=now - timedelta(minutes=5 if payload.complete else 0),
+                    deadline_at=now if payload.complete else now + timedelta(minutes=5),
+                    minimum_samples=5,
+                ),
+                observation=CanaryObservation(
+                    release_id=release.release_id,
+                    observed_at=now,
+                    sample_count=payload.sample_count,
+                    error_rate=payload.error_rate if payload.telemetry_available else None,
+                    latency_ms=payload.latency_ms if payload.telemetry_available else None,
+                    telemetry_available=payload.telemetry_available,
+                    telemetry_age_seconds=0 if payload.telemetry_available else None,
+                    validation_passed=payload.validation_passed,
+                ),
+                policy=SLOPolicy(
+                    policy_revision="staging-local-v1",
+                    max_error_rate=0.05,
+                    max_latency_ms=300,
+                    minimum_samples=5,
+                    telemetry_max_age_seconds=60,
+                ),
+            )
+        except (DeploymentConflictError, ValueError):
+            return _error_response(
+                status.HTTP_409_CONFLICT,
+                "deployment_conflict",
+                "Deployment inputs conflict with the saved release.",
+            )
+        return _deployment_response(result)
+
+    @app.get("/deployments/{release_id}", response_model=DeploymentResponse, tags=["deployment"])
+    def get_deployment(release_id: str) -> DeploymentResponse | JSONResponse:
+        result = _deployment_service(active_settings).status(release_id)
+        if result is None:
+            return _error_response(
+                status.HTTP_404_NOT_FOUND, "release_not_found", "Release was not found."
+            )
+        return _deployment_response(result)
+
+    @app.post(
+        "/deployments/{release_id}/rollback",
+        response_model=DeploymentResponse,
+        tags=["deployment"],
+    )
+    def rollback_deployment(
+        release_id: str, payload: DeploymentRollbackRequest
+    ) -> DeploymentResponse | JSONResponse:
+        try:
+            result = _deployment_service(active_settings).rollback(
+                release_id, actor="lou-api-operator", reason=payload.reason
+            )
+        except DeploymentConflictError:
+            return _error_response(
+                status.HTTP_404_NOT_FOUND, "release_not_found", "Release was not found."
+            )
+        return _deployment_response(result)
+
+    @app.get("/deployments/{release_id}/report", response_model=None, tags=["deployment"])
+    def get_deployment_report(release_id: str) -> Response:
+        report = _deployment_service(active_settings).report(release_id)
+        if report is None:
+            return _error_response(
+                status.HTTP_404_NOT_FOUND, "release_not_found", "Release was not found."
+            )
+        return Response(
+            json.dumps(report, sort_keys=True, separators=(",", ":")),
+            media_type="application/json",
+        )
+
     @app.get("/analysis/{run_id}/report", response_model=None, tags=["analysis"])
-    def get_report(
-        run_id: UUID, format: Literal["json", "markdown"] = "json"
-    ) -> Response:
+    def get_report(run_id: UUID, format: Literal["json", "markdown"] = "json") -> Response:
         try:
             report = read_report().read(str(run_id))
         except ReportError as error:
@@ -468,6 +597,27 @@ def _publication_response(result: object) -> PublicationResponse:
         provider_reference=value.provider_reference,
         decision_id=value.decision_id,
         message=value.message,
+    )
+
+
+def _deployment_service(settings: Settings) -> DeploymentService:
+    return DeploymentService(DeploymentJournal(settings.artifact_root), InMemoryDeploymentAdapter())
+
+
+def _deployment_response(result: object) -> DeploymentResponse:
+    from lou.deployment.service import DeploymentResult
+
+    if not isinstance(result, DeploymentResult):
+        raise ValueError("invalid deployment result")
+    return DeploymentResponse(
+        release_id=result.release.release_id,
+        analysis_run_id=result.release.analysis_run_id,
+        commit_sha=result.release.commit_sha,
+        status=result.status,
+        reused=result.reused,
+        decision=result.decision.action if result.decision else None,
+        reasons=list(result.decision.reasons) if result.decision else [],
+        evidence_count=len(result.evidence),
     )
 
 

@@ -1,4 +1,15 @@
 services:
+  staging-demo:
+    image: nginx:1.27-alpine
+    profiles: ["staging"]
+    ports:
+      - "${LOU_STAGING_PORT:-8088}:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/ >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   otel-collector:
     image: otel/opentelemetry-collector-contrib:latest@sha256:799dc6cf12c96192af37b5bdba804da8c10b3bc563b43cb90c3f3c58d9572ad6
     profiles: ["telemetry"]
