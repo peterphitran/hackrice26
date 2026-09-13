@@ -1,0 +1,21 @@
+{
+  "schema_version": "1",
+  "evidence_id": "deployment_evidence_001",
+  "release_id": "release_checkout_candidate_001",
+  "analysis_run_id": "run_demo_001",
+  "commit_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "event": "promoted",
+  "actor": "lou-policy",
+  "collected_at": "2026-09-13T12:00:00Z",
+  "decision": {
+    "schema_version": "1",
+    "release_id": "release_checkout_candidate_001",
+    "action": "promote",
+    "policy_revision": "staging-v1",
+    "reasons": ["validation passed", "canary window complete"],
+    "decided_at": "2026-09-13T12:00:00Z"
+  },
+  "verification_run_ids": ["verification_candidate_001"],
+  "trace_ids": ["0123456789abcdef0123456789abcdef"],
+  "metadata": {"sample_count": 20}
+}

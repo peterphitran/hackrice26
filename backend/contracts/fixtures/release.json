@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "release_id": "release_checkout_candidate_001",
+  "repository_id": "broken-store",
+  "commit_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "analysis_run_id": "run_demo_001",
+  "artifact_uri": "file:///tmp/lou/checkout.tar",
+  "target": {
+    "schema_version": "1",
+    "environment": "staging",
+    "adapter": "local",
+    "namespace": "lou-demo",
+    "service": "broken-store"
+  },
+  "requested_by": "demo"
+}

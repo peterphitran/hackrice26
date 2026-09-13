@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal, cast
 from uuid import UUID
@@ -12,6 +13,7 @@ import typer
 from rich.console import Console
 from sqlalchemy.exc import SQLAlchemyError
 
+from contracts import CanaryObservation, CanaryWindow, DeploymentTarget, Release, SLOPolicy
 from lou.application import (
     AnalysisRequest,
     AnalysisResult,
@@ -25,6 +27,12 @@ from lou.application import (
 from lou.core.errors import LouError
 from lou.core.settings import get_settings
 from lou.core.version import APP_VERSION
+from lou.deployment import (
+    DeploymentConflictError,
+    DeploymentJournal,
+    DeploymentService,
+    InMemoryDeploymentAdapter,
+)
 from lou.persistence.database import create_session_factory
 from lou.persistence.repositories import SqlAlchemyRemediationRunRepository
 from lou.reporting import EvidenceReportReader, ReportError
@@ -244,10 +252,136 @@ def publish_remediation(
     console.print_json(result.model_dump_json())
 
 
+@app.command()
+def deploy(
+    run: str = typer.Option(..., "--run", help="Completed analysis run ID."),
+    commit: str = typer.Option(..., "--commit", help="Verified commit SHA."),
+    repository: str = typer.Option("local-demo", "--repository"),
+    release: str | None = typer.Option(None, "--release", help="Idempotent release ID."),
+    validation_passed: bool = typer.Option(True, "--validation-passed/--validation-failed"),
+    telemetry_available: bool = typer.Option(True, "--telemetry-available/--telemetry-missing"),
+    error_rate: float = typer.Option(0.0, "--error-rate", min=0, max=1),
+    latency_ms: float = typer.Option(100.0, "--latency-ms", min=0.1),
+    samples: int = typer.Option(20, "--samples", min=0),
+    complete: bool = typer.Option(True, "--complete/--observing"),
+    output: str = typer.Option("text", "--output", help="text or json"),
+) -> None:
+    """Run a bounded staging canary using local, credential-free composition."""
+
+    if output not in {"text", "json"}:
+        _input_error("--output must be text or json")
+    if len(commit) < 7:
+        _input_error("--commit must contain at least seven characters")
+    release_id = release or f"release_{hashlib.sha256(f'{run}:{commit}'.encode()).hexdigest()[:16]}"
+    now = datetime.now(UTC)
+    service = _deployment_service()
+    value = Release(
+        release_id=release_id,
+        repository_id=repository,
+        commit_sha=commit,
+        analysis_run_id=run,
+        target=DeploymentTarget(
+            environment="staging", adapter="local", namespace="lou", service="lou-demo"
+        ),
+        requested_by="lou-cli",
+    )
+    try:
+        service.release(value)
+        result = service.observe(
+            release_id=release_id,
+            window=CanaryWindow(
+                release_id=release_id,
+                started_at=now - timedelta(minutes=5 if complete else 0),
+                deadline_at=now if complete else now + timedelta(minutes=5),
+                minimum_samples=5,
+            ),
+            observation=CanaryObservation(
+                release_id=release_id,
+                observed_at=now,
+                sample_count=samples,
+                error_rate=error_rate if telemetry_available else None,
+                latency_ms=latency_ms if telemetry_available else None,
+                telemetry_available=telemetry_available,
+                telemetry_age_seconds=0 if telemetry_available else None,
+                validation_passed=validation_passed,
+            ),
+            policy=SLOPolicy(
+                policy_revision="staging-local-v1",
+                max_error_rate=0.05,
+                max_latency_ms=300,
+                minimum_samples=5,
+                telemetry_max_age_seconds=60,
+            ),
+        )
+    except (DeploymentConflictError, ValueError):
+        _input_error("deployment inputs are invalid or conflict with an existing release")
+    payload = _deployment_summary(result)
+    if output == "json":
+        console.print_json(json.dumps(payload, sort_keys=True))
+    else:
+        console.print(f"release: {payload['release_id']}")
+        console.print(f"status: {payload['status']}")
+        console.print(f"decision: {payload['decision']}")
+
+
+@app.command("deploy-status")
+def deploy_status(
+    release: str = typer.Option(..., "--release"), output: str = typer.Option("text", "--output")
+) -> None:
+    """Read an append-only staging deployment record without rerunning it."""
+
+    if output not in {"text", "json"}:
+        _input_error("--output must be text or json")
+    result = _deployment_service().status(release)
+    if result is None:
+        _input_error("release was not found")
+    payload = _deployment_summary(result)
+    if output == "json":
+        console.print_json(json.dumps(payload, sort_keys=True))
+    else:
+        console.print(f"release: {payload['release_id']}; status: {payload['status']}")
+
+
+@app.command("deploy-rollback")
+def deploy_rollback(
+    release: str = typer.Option(..., "--release"),
+    reason: str = typer.Option(..., "--reason"),
+    output: str = typer.Option("text", "--output"),
+) -> None:
+    """Record an idempotent, operator-attributed staging rollback."""
+
+    if output not in {"text", "json"} or not reason.strip():
+        _input_error("--output must be text or json")
+    try:
+        result = _deployment_service().rollback(release, actor="lou-cli-operator", reason=reason)
+    except DeploymentConflictError:
+        _input_error("release was not found")
+    payload = _deployment_summary(result)
+    if output == "json":
+        console.print_json(json.dumps(payload, sort_keys=True))
+    else:
+        console.print(f"release: {payload['release_id']}; status: {payload['status']}")
+
+
+@app.command("deploy-report")
+def deploy_report(release: str = typer.Option(..., "--release")) -> None:
+    """Render the complete immutable evidence report for a staging release."""
+
+    report = _deployment_service().report(release)
+    if report is None:
+        _input_error("release was not found")
+    console.print_json(json.dumps(report, sort_keys=True))
+
+
 def _build_service() -> Any:
     """Keep persistence and Docker composition outside the command body."""
 
     return build_fixture_service(get_settings())
+
+
+def _deployment_service() -> DeploymentService:
+    settings = get_settings()
+    return DeploymentService(DeploymentJournal(settings.artifact_root), InMemoryDeploymentAdapter())
 
 
 def _read_configuration(config: Path | None) -> dict[str, object]:
@@ -282,7 +416,6 @@ def _summary(result: AnalysisResult) -> dict[str, object]:
         "status": result.status,
         "reused": result.reused,
         "stages": list(result.stages),
-        "prediction": result.prediction.model_dump(mode="json") if result.prediction else None,
         "prediction": result.prediction.model_dump(mode="json") if result.prediction else None,
         "message": result.message,
         "candidate": (
@@ -329,6 +462,23 @@ def _remediation_summary(result: Any) -> dict[str, object]:
             if state.decision is not None
             else None
         ),
+    }
+
+
+def _deployment_summary(result: object) -> dict[str, object]:
+    from lou.deployment.service import DeploymentResult
+
+    if not isinstance(result, DeploymentResult):
+        raise ValueError("invalid deployment result")
+    return {
+        "release_id": result.release.release_id,
+        "analysis_run_id": result.release.analysis_run_id,
+        "commit_sha": result.release.commit_sha,
+        "status": result.status,
+        "reused": result.reused,
+        "decision": result.decision.action if result.decision else None,
+        "reasons": list(result.decision.reasons) if result.decision else [],
+        "evidence_count": len(result.evidence),
     }
 
 

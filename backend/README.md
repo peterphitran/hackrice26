@@ -20,6 +20,29 @@ docker compose -f infra/compose.yaml --profile telemetry down
 Set `LOU_TELEMETRY_EXPORTER=memory` for persisted safe summaries, or `otlp` to
 mirror them to the local collector. See `demo/README.md` for the full rehearsal.
 
+## Staging canary rehearsal (M8)
+
+M8 is staging-only. It writes an append-only deployment journal below the artifact
+root, evaluates validation and telemetry against a deterministic SLO policy, and
+can only promote, pause, or roll back a local rehearsal release. It does not read
+or store production credentials.
+
+```bash
+cd backend
+python -m lou.deployment.int008
+
+# Or run a single local canary through the CLI.
+lou deploy --run demo-run --commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --output json
+lou deploy-status --release <release-id> --output json
+lou deploy-rollback --release <release-id> --reason "operator review"
+lou deploy-report --release <release-id>
+```
+
+The Docker controller prints `__LOU_INT008_RESULT__`. It passes only when a
+healthy canary is promoted and a deliberate SLO breach is rolled back. Missing
+telemetry pauses the release. The Argo Rollouts adapter is a trusted boundary for
+future staging clusters; this local rehearsal uses the credential-free adapter.
+
 ## Prerequisites
 
 - Python 3.11 or newer; Python 3.13 is recommended

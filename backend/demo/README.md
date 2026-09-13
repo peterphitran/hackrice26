@@ -49,6 +49,24 @@ disabled. To retain safe runtime-observation evidence in a fixture analysis,
 explicitly set `LOU_TELEMETRY_EXPORTER=memory` or `otlp`; a collector outage is
 recorded as unavailable observability and never changes the verification result.
 
+## Rehearse staging promotion and rollback (M8)
+
+M8 does not deploy to production. Its controller starts a disposable local
+staging service, uses the deterministic local deployment adapter, and writes a
+temporary append-only deployment journal. It proves one healthy canary promotes
+and one deliberate error-rate breach rolls back:
+
+```bash
+cd backend
+python -m lou.deployment.int008
+```
+
+Success prints `__LOU_INT008_RESULT__` with `healthy_promoted: true` and
+`bad_rolled_back: true`. If telemetry is missing or stale, the policy pauses;
+it never promotes on absent evidence. The journal links analysis run, commit,
+verification IDs, trace IDs, policy decision, actor, and outcome without
+including credentials.
+
 ## Cross-machine check
 
 On a machine that has Python dependencies and Docker Desktop available, run:
