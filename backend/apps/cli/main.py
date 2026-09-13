@@ -5,17 +5,28 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
+from uuid import UUID
 
 import typer
 from rich.console import Console
 from sqlalchemy.exc import SQLAlchemyError
 
-from lou.application import AnalysisRequest, AnalysisResult, build_fixture_service
+from lou.application import (
+    AnalysisRequest,
+    AnalysisResult,
+    GitHubCliPublisher,
+    PublicationError,
+    PublicationService,
+    RemediationAssemblyError,
+    build_fixture_service,
+    run_fixture_remediation,
+)
 from lou.core.errors import LouError
 from lou.core.settings import get_settings
 from lou.core.version import APP_VERSION
 from lou.persistence.database import create_session_factory
+from lou.persistence.repositories import SqlAlchemyRemediationRunRepository
 from lou.reporting import EvidenceReportReader, ReportError
 from lou.repository import resolve_repository_revisions
 
@@ -129,6 +140,110 @@ def report(
         raise typer.Exit(code=3) from None
 
 
+@app.command()
+def remediate(
+    run: str = typer.Option(..., "--run", help="Persisted analysis run ID."),
+    provider: str = typer.Option("mock", "--provider", help="mock or gemini"),
+    force_token: str | None = typer.Option(None, "--force-token"),
+    output: str = typer.Option("text", "--output", help="text or json"),
+) -> None:
+    """Propose and independently verify the supported local checkout repair."""
+
+    if provider not in {"mock", "gemini"} or output not in {"text", "json"}:
+        _input_error("--provider must be mock or gemini and --output must be text or json")
+    try:
+        result = run_fixture_remediation(
+            UUID(run),
+            provider=cast(Literal["mock", "gemini"], provider),
+            settings=get_settings(),
+            force_token=force_token,
+        )
+    except (RemediationAssemblyError, ValueError):
+        _input_error("remediation input is unavailable or unsupported")
+    except Exception:
+        console.print(
+            "remediation unavailable; review Docker, persisted evidence, and local artifacts"
+        )
+        raise typer.Exit(code=3) from None
+    payload = _remediation_summary(result)
+    if output == "json":
+        console.print_json(json.dumps(payload, sort_keys=True))
+    else:
+        console.print(f"remediation: {payload['agent_run_id']}")
+        console.print(f"status: {payload['status']}; stage: {payload['stage']}")
+        console.print(f"termination: {payload['termination_reason']}")
+
+
+@app.command("remediation-status")
+def remediation_status(
+    remediation: str = typer.Option(..., "--remediation", help="Persisted remediation run ID."),
+    output: str = typer.Option("text", "--output", help="text or json"),
+) -> None:
+    """Read a remediation state and append-only stage history without rerunning it."""
+
+    if output not in {"text", "json"}:
+        _input_error("--output must be text or json")
+    try:
+        repository = SqlAlchemyRemediationRunRepository(create_session_factory(get_settings()))
+        view = repository.get(UUID(remediation))
+        if view is None:
+            _input_error("remediation run was not found")
+        assert view is not None
+        payload = {
+            "agent_run_id": str(view.id),
+            "analysis_run_id": str(view.input.analysis_run_id),
+            "status": view.status,
+            "stage": view.stage,
+            "attempt_count": view.attempt_count,
+            "tokens_spent": view.tokens_spent,
+            "estimated_cost_usd": view.estimated_cost_usd,
+            "termination_reason": view.termination_reason,
+            "attempts": [
+                {"stage": item.value.stage, "outcome": item.value.outcome}
+                for item in repository.list_attempts(view.id)
+            ],
+        }
+    except (ValueError, SQLAlchemyError):
+        _input_error("remediation run is unavailable")
+    if output == "json":
+        console.print_json(json.dumps(payload, sort_keys=True))
+    else:
+        console.print(f"remediation: {payload['agent_run_id']}")
+        console.print(f"status: {payload['status']}; stage: {payload['stage']}")
+
+
+@app.command("publish-remediation")
+def publish_remediation(
+    remediation: str = typer.Option(..., "--remediation"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+    publish: bool = typer.Option(False, "--publish"),
+    acknowledge: str | None = typer.Option(None, "--acknowledge"),
+) -> None:
+    """Create a credential-free PR plan or explicitly call the trusted publisher."""
+
+    if dry_run == publish:
+        _input_error("choose exactly one of --dry-run or --publish")
+    settings = get_settings()
+    session_factory = create_session_factory(settings)
+    service = PublicationService(
+        session_factory,
+        EvidenceReportReader(session_factory, settings.artifact_root),
+    )
+    try:
+        result = (
+            service.dry_run(UUID(remediation))
+            if dry_run
+            else service.publish(
+                UUID(remediation),
+                acknowledgement=acknowledge or "",
+                publisher=GitHubCliPublisher(),
+            )
+        )
+    except (PublicationError, ValueError):
+        _input_error("publication request was denied or unavailable")
+    console.print_json(result.model_dump_json())
+
+
 def _build_service() -> Any:
     """Keep persistence and Docker composition outside the command body."""
 
@@ -186,6 +301,30 @@ def _summary(result: AnalysisResult) -> dict[str, object]:
                 "classification": result.decision.metadata.get("outcome_classification"),
             }
             if result.decision is not None
+            else None
+        ),
+    }
+
+
+def _remediation_summary(result: Any) -> dict[str, object]:
+    state = result.state
+    return {
+        "agent_run_id": str(result.run.id),
+        "analysis_run_id": str(result.run.input.analysis_run_id),
+        "status": result.run.status,
+        "stage": result.run.stage,
+        "reused": result.reused,
+        "attempt_count": state.attempt_count,
+        "tokens_spent": state.tokens_spent,
+        "estimated_cost_usd": state.estimated_cost_spent_usd,
+        "termination_reason": state.termination_reason,
+        "decision": (
+            {
+                "action": state.decision.action,
+                "autonomy_level": state.decision.autonomy_level,
+                "confidence": state.decision.confidence,
+            }
+            if state.decision is not None
             else None
         ),
     }

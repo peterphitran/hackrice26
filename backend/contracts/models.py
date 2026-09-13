@@ -119,6 +119,62 @@ class AgentResult(ContractModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class RemediationRequest(ContractModel):
+    """Immutable, user-requested input for one bounded remediation run."""
+
+    analysis_run_id: str
+    provider: Literal["mock", "gemini"] = "mock"
+    policy_revision: str = "local-v1"
+    limits: dict[str, Any] = Field(default_factory=dict)
+    force_new_run: bool = False
+    force_token: str | None = None
+
+
+class AgentRun(ContractModel):
+    """Durable public status for a remediation workflow."""
+
+    agent_run_id: str
+    analysis_run_id: str
+    input_fingerprint: str
+    provider: Literal["mock", "gemini"]
+    status: Literal["queued", "running", "succeeded", "failed", "abandoned", "cancelled"]
+    stage: Literal["context", "diagnose", "patch", "validate", "verify", "decide", "stopped"]
+    attempt_count: int = Field(ge=0)
+    tokens_spent: int = Field(ge=0)
+    estimated_cost_usd: float = Field(ge=0)
+    termination_reason: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PublicationPlan(ContractModel):
+    """Credential-free, immutable description of an allowed pull-request action."""
+
+    publication_plan_id: str
+    agent_run_id: str
+    analysis_run_id: str
+    decision_id: str
+    repository: str
+    base_branch: str
+    branch_name: str
+    title: str
+    body: str
+    patch_sha256: str
+    evidence_report_sha256: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PublicationResult(ContractModel):
+    """Safe durable result of a dry run, denied request, or trusted publication."""
+
+    publication_plan_id: str
+    agent_run_id: str
+    status: Literal["dry_run", "published", "denied", "failed"]
+    provider_reference: str | None = None
+    decision_id: str | None = None
+    message: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class PatchArtifact(ContractModel):
     patch_id: str
     analysis_run_id: str

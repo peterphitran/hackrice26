@@ -17,15 +17,27 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
-from lou.application import AnalysisRequest, AnalysisResult, build_fixture_service
+from lou.application import (
+    AnalysisRequest,
+    AnalysisResult,
+    GitHubCliPublisher,
+    PublicationError,
+    PublicationService,
+    RemediationAssemblyError,
+    build_fixture_service,
+    run_fixture_remediation,
+)
 from lou.application.analysis import MAX_CONFIGURATION_BYTES
 from lou.core.errors import LouError
 from lou.core.settings import Settings, get_settings
 from lou.core.version import APP_VERSION
 from lou.persistence.database import create_session_factory
-from lou.persistence.interfaces import AnalysisRunView
+from lou.persistence.interfaces import AnalysisRunView, RemediationRunView
 from lou.persistence.models import LouDecisionRecord
-from lou.persistence.repositories import SqlAlchemyAnalysisRunRepository
+from lou.persistence.repositories import (
+    SqlAlchemyAnalysisRunRepository,
+    SqlAlchemyRemediationRunRepository,
+)
 from lou.reporting import EvidenceReport, EvidenceReportReader, ReportError
 from lou.repository import resolve_repository_revisions
 
@@ -79,6 +91,36 @@ class AnalysisStatusResponse(ApiModel):
     fix_commit_sha: str | None = None
     started_at: str | None = None
     completed_at: str | None = None
+
+
+class RemediationCreateRequest(ApiModel):
+    provider: Literal["mock", "gemini"] = "mock"
+    force_token: str | None = Field(default=None, min_length=1, max_length=256)
+
+
+class RemediationStatusResponse(ApiModel):
+    agent_run_id: str
+    analysis_run_id: str
+    status: Literal["queued", "running", "succeeded", "failed", "abandoned", "cancelled"]
+    stage: Literal["context", "diagnose", "patch", "validate", "verify", "decide", "stopped"]
+    attempt_count: int
+    tokens_spent: int
+    estimated_cost_usd: float
+    termination_reason: str | None = None
+    reused: bool = False
+
+
+class PublicationRequest(ApiModel):
+    acknowledgement: str | None = Field(default=None, min_length=1, max_length=128)
+
+
+class PublicationResponse(ApiModel):
+    publication_plan_id: str
+    agent_run_id: str
+    status: Literal["dry_run", "published", "denied", "failed"]
+    provider_reference: str | None = None
+    decision_id: str | None = None
+    message: str | None = None
 
 
 class AnalysisService(Protocol):
@@ -161,6 +203,42 @@ def create_app(
             )
         return _accepted_response(result)
 
+    @app.post(
+        "/analysis/{analysis_run_id}/remediations",
+        response_model=RemediationStatusResponse,
+        status_code=status.HTTP_202_ACCEPTED,
+        tags=["remediation"],
+    )
+    def create_remediation(
+        analysis_run_id: UUID, payload: RemediationCreateRequest
+    ) -> RemediationStatusResponse | JSONResponse:
+        try:
+            result = run_fixture_remediation(
+                analysis_run_id,
+                provider=payload.provider,
+                settings=active_settings,
+                force_token=payload.force_token,
+            )
+        except RemediationAssemblyError:
+            return _error_response(
+                status.HTTP_409_CONFLICT,
+                "remediation_not_eligible",
+                "The analysis run does not have eligible verified remediation evidence.",
+            )
+        except (OSError, SQLAlchemyError):
+            return _error_response(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "remediation_unavailable",
+                "Remediation is temporarily unavailable.",
+            )
+        except Exception:
+            return _error_response(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "remediation_unavailable",
+                "Remediation is temporarily unavailable.",
+            )
+        return _remediation_response(result.run, result.reused)
+
     @app.get("/analysis/{run_id}", response_model=AnalysisStatusResponse, tags=["analysis"])
     def get_analysis(run_id: UUID) -> AnalysisStatusResponse | JSONResponse:
         try:
@@ -178,6 +256,68 @@ def create_app(
                 "Analysis run was not found.",
             )
         return _status_response(view)
+
+    @app.get(
+        "/remediations/{agent_run_id}",
+        response_model=RemediationStatusResponse,
+        tags=["remediation"],
+    )
+    def get_remediation(agent_run_id: UUID) -> RemediationStatusResponse | JSONResponse:
+        try:
+            view = SqlAlchemyRemediationRunRepository(
+                create_session_factory(active_settings)
+            ).get(agent_run_id)
+        except SQLAlchemyError:
+            return _error_response(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "remediation_unavailable",
+                "Remediation is temporarily unavailable.",
+            )
+        if view is None:
+            return _error_response(
+                status.HTTP_404_NOT_FOUND,
+                "remediation_not_found",
+                "Remediation run was not found.",
+            )
+        return _remediation_response(view, False)
+
+    @app.post(
+        "/remediations/{agent_run_id}/publication-dry-run",
+        response_model=PublicationResponse,
+        tags=["remediation"],
+    )
+    def publication_dry_run(agent_run_id: UUID) -> PublicationResponse | JSONResponse:
+        try:
+            result = _publication_service(active_settings).dry_run(agent_run_id)
+        except PublicationError:
+            return _error_response(
+                status.HTTP_404_NOT_FOUND,
+                "remediation_not_found",
+                "Remediation run was not found.",
+            )
+        return _publication_response(result)
+
+    @app.post(
+        "/remediations/{agent_run_id}/publish",
+        response_model=PublicationResponse,
+        tags=["remediation"],
+    )
+    def publish_remediation(
+        agent_run_id: UUID, payload: PublicationRequest
+    ) -> PublicationResponse | JSONResponse:
+        try:
+            result = _publication_service(active_settings).publish(
+                agent_run_id,
+                acknowledgement=payload.acknowledgement or "",
+                publisher=GitHubCliPublisher(),
+            )
+        except PublicationError:
+            return _error_response(
+                status.HTTP_409_CONFLICT,
+                "publication_denied",
+                "Publication requires explicit A3 authorization and acknowledgement.",
+            )
+        return _publication_response(result)
 
     @app.get("/analysis/{run_id}/report", response_model=None, tags=["analysis"])
     def get_report(
@@ -295,6 +435,39 @@ def _status_response(view: RunStatusView) -> AnalysisStatusResponse:
         fix_commit_sha=run.fix_commit_sha,
         started_at=run.started_at.isoformat() if run.started_at is not None else None,
         completed_at=run.completed_at.isoformat() if run.completed_at is not None else None,
+    )
+
+
+def _remediation_response(view: RemediationRunView, reused: bool) -> RemediationStatusResponse:
+    return RemediationStatusResponse(
+        agent_run_id=str(view.id),
+        analysis_run_id=str(view.input.analysis_run_id),
+        status=view.status,
+        stage=view.stage,
+        attempt_count=view.attempt_count,
+        tokens_spent=view.tokens_spent,
+        estimated_cost_usd=view.estimated_cost_usd,
+        termination_reason=view.termination_reason,
+        reused=reused,
+    )
+
+
+def _publication_service(settings: Settings) -> PublicationService:
+    factory = create_session_factory(settings)
+    return PublicationService(factory, EvidenceReportReader(factory, settings.artifact_root))
+
+
+def _publication_response(result: object) -> PublicationResponse:
+    from contracts import PublicationResult
+
+    value = PublicationResult.model_validate(result)
+    return PublicationResponse(
+        publication_plan_id=value.publication_plan_id,
+        agent_run_id=value.agent_run_id,
+        status=value.status,
+        provider_reference=value.provider_reference,
+        decision_id=value.decision_id,
+        message=value.message,
     )
 
 

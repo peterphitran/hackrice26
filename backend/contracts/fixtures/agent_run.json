@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "agent_run_id": "agent_run_demo_001",
+  "analysis_run_id": "run_demo_001",
+  "input_fingerprint": "7e308ad1e362bee2af8a68cd2ebe0a2971ba3e3c494745d102107b7d1a4f963b",
+  "provider": "mock",
+  "status": "running",
+  "stage": "diagnose",
+  "attempt_count": 1,
+  "tokens_spent": 0,
+  "estimated_cost_usd": 0.0,
+  "termination_reason": null,
+  "metadata": {
+    "policy_revision": "local-v1"
+  }
+}

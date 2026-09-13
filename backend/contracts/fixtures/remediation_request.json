@@ -1,0 +1,14 @@
+{
+  "schema_version": "1",
+  "analysis_run_id": "run_demo_001",
+  "provider": "mock",
+  "policy_revision": "local-v1",
+  "limits": {
+    "max_attempts": 3,
+    "max_wall_seconds": 120,
+    "max_tokens": 20000,
+    "max_cost_usd": 1.0
+  },
+  "force_new_run": false,
+  "force_token": null
+}

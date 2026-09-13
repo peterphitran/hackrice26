@@ -1,0 +1,10 @@
+{
+  "schema_version": "1",
+  "publication_plan_id": "publication_plan_demo_001",
+  "agent_run_id": "agent_run_demo_001",
+  "status": "dry_run",
+  "provider_reference": null,
+  "decision_id": "decision_demo_001",
+  "message": "No network action was requested.",
+  "metadata": {"branch_name": "lou/fix-agent-run-demo-001"}
+}
