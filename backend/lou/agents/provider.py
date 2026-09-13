@@ -229,9 +229,35 @@ class AgentAdapter:
     """Default to the mock and turn provider errors into typed abandoned results."""
 
     def __init__(self, provider: AgentProvider | None = None) -> None:
-        self.provider = provider or DeterministicMockProvider()
+        from lou.agents.settings import get_agent_settings
+
+        self._selected_gemini = provider is None and get_agent_settings().agent_provider == "gemini"
+        self.provider: AgentProvider
+        if self._selected_gemini:
+            from lou.agents.live_provider import GeminiProvider
+
+            self.provider = GeminiProvider()
+        else:
+            self.provider = provider or DeterministicMockProvider()
 
     def call(self, request: ProviderRequest) -> ProviderResponse:
+        response = self._call_once(request)
+        if self._selected_gemini and response.result.status == "abandoned":
+            fallback = DeterministicMockProvider().call(request)
+            metadata = fallback.result.metadata | {
+                "provider_selected": "gemini",
+                "fallback_used": True,
+                "fallback_provider": DeterministicMockProvider.name,
+                "fallback_reason": response.result.metadata.get(
+                    "abandon_reason", "gemini_call_failed"
+                ),
+            }
+            return fallback.model_copy(
+                update={"result": fallback.result.model_copy(update={"metadata": metadata})}
+            )
+        return response
+
+    def _call_once(self, request: ProviderRequest) -> ProviderResponse:
         start = time.perf_counter()
         provider_name = type(self.provider).__name__
         for attempt in range(request.max_retries + 1):

@@ -8,6 +8,7 @@ from lou.agents.context import (
     RepositoryText,
     build_context_bundle,
 )
+from lou.agents.live_provider import GeminiProposal, GeminiProvider
 from lou.agents.orchestration import (
     DeterministicMockVerifier,
     OrchestrationInputs,
@@ -40,6 +41,8 @@ __all__ = [
     "BundleItem",
     "DeterministicMockProvider",
     "DeterministicMockVerifier",
+    "GeminiProposal",
+    "GeminiProvider",
     "OmittedContext",
     "OrchestrationInputs",
     "OrchestrationLimits",
