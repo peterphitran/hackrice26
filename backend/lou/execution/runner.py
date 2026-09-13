@@ -147,7 +147,7 @@ def run_command(
     identifier = uuid4().hex
     stdout_collector = _OutputCollector(max_output_bytes, artifact_dir, f"{identifier}-stdout.log")
     stderr_collector = _OutputCollector(max_output_bytes, artifact_dir, f"{identifier}-stderr.log")
-    creation_flags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+    creation_flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0
 
     try:
         process = subprocess.Popen(

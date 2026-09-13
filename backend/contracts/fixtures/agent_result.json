@@ -1,0 +1,10 @@
+{
+  "schema_version": "1",
+  "agent_run_id": "agent_demo_001",
+  "analysis_run_id": "run_demo_001",
+  "status": "succeeded",
+  "diagnosis": "The order listing loads each customer separately.",
+  "plan": "Fetch customer data in the initial order query.",
+  "confidence": 0.88,
+  "metadata": {"adapter": "deterministic-mock", "attempt": 1}
+}

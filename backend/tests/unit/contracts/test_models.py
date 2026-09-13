@@ -4,10 +4,12 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from contracts import (
+    AgentResult,
     AnalysisJob,
     Evidence,
     Finding,
     LouDecision,
+    PatchArtifact,
     RepositoryChange,
     RepositoryContext,
     VerificationResult,
@@ -66,12 +68,15 @@ def test_evidence_and_decision_support_hackathon_result() -> None:
 def test_published_contract_fixtures_validate() -> None:
     fixtures: dict[str, type[BaseModel]] = {
         "analysis_job.json": AnalysisJob,
-        "workload_selection.json": WorkloadSelection,
+        "repository_change.json": RepositoryChange,
         "repository_context.json": RepositoryContext,
+        "workload_selection.json": WorkloadSelection,
         "finding.json": Finding,
         "evidence.json": Evidence,
         "evidence_baseline.json": Evidence,
         "verification_result.json": VerificationResult,
+        "agent_result.json": AgentResult,
+        "patch_artifact.json": PatchArtifact,
         "verification_result_baseline.json": VerificationResult,
         "lou_decision.json": LouDecision,
     }
