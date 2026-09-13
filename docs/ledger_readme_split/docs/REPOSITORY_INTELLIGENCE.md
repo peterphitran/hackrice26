@@ -156,6 +156,14 @@ Every imported record needs a source, source-native ID, repository and commit id
 
 Graph traversal answers what is structurally related; semantic retrieval answers what appears conceptually related. Use both, rerank the combined result, and enforce a context budget.
 
+The implemented v1 semantic layer is a deterministic, dependency-free lexical ranker. It indexes
+Python paths, stable source-symbol names, identifiers, docstrings, and comments directly from
+immutable candidate-commit Git blobs. Results are supplemental, bounded by explicit indexing and
+output budgets, and never displace graph-selected symbols, tests, endpoints, data dependencies, or
+workloads. Incomplete indexing and retrieval are reported separately from a complete query with no
+matches. A narrow repository-retriever interface permits a future local SCIP or embedding backend
+without making either one a current dependency.
+
 The context bundle for an agent should contain the finding, changed symbol, callers and callees, interfaces, affected tests, relevant historical changes, runtime evidence, and explicit notices about relationships the indexer could not resolve. Missing graph context must reduce confidence rather than being treated as evidence that no dependency exists.
 
 ## Impact Prediction Evaluation

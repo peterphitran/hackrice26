@@ -191,6 +191,10 @@ VALIDATED_BY
 
 For a changed symbol, graph traversal selects direct callers, callees, tests, endpoints, database dependencies, and load scenarios. Semantic retrieval may add conceptually similar implementations or past fixes, but it must not displace structurally required context.
 
+RI-007 implements semantic retrieval v1 as a bounded local lexical index over immutable Python Git
+blobs. SCIP and embedding implementations remain future optional backends behind the same narrow
+retrieval boundary; neither is required for the hackathon path.
+
 ## Context Bundle
 
 The agent receives a deliberately small bundle:

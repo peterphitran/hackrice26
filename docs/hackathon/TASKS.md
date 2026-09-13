@@ -268,7 +268,7 @@ Acceptance:
 - [x] Raw output is stored as an artifact.
 - [x] The adapter can be disabled without breaking runtime verification.
 
-### [ ] RI-007 — Add bounded semantic retrieval
+### [x] RI-007 — Add bounded semantic retrieval
 
 - Priority: P2
 - Owner: Engineer 1
@@ -278,10 +278,10 @@ Acceptance:
 
 Acceptance:
 
-- [ ] Works locally using lexical retrieval or optional embeddings.
-- [ ] Never removes graph-required context.
-- [ ] Records score and selection reason.
-- [ ] Enforces a strict item/token budget.
+- [x] Works locally using lexical retrieval or optional embeddings.
+- [x] Never removes graph-required context.
+- [x] Records score and selection reason.
+- [x] Enforces a strict item/token budget.
 
 ## Workstream 2 — Agents and Decisions
 
@@ -799,7 +799,9 @@ Every implementation PR should answer:
 
 ## Parking Lot
 
-The detailed stretch tasks are RI-007 for semantic retrieval, PF-007 for the results page, and PF-008 for GitHub integration. Record additional post-hackathon ideas here instead of expanding P0 scope. Do not start parking-lot work before INT-004 passes.
+RI-007 now provides the bounded lexical v1 path. The remaining detailed stretch tasks are PF-007
+for the results page and PF-008 for GitHub integration. Record additional post-hackathon ideas here
+instead of expanding P0 scope. Do not start parking-lot work before INT-004 passes.
 
 - [ ] PK-001 — SCIP semantic index integration
 - [ ] PK-002 — OPA service integration
