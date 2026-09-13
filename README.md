@@ -11,5 +11,6 @@ Lou is an evidence-driven software maintenance system that detects technical deb
 - [PostgreSQL schema plan](docs/hackathon/DATABASE_SCHEMA.md) — MVP data model, draft DDL, and persistence lifecycle
 - [Product and architecture documentation](docs/ledger_readme_split/README.md) — product thesis, technical design, security, execution, learning, ownership, and roadmap
 - [Workflow diagrams](docs/project_ledger_mermaid_workflows/README.md) — Mermaid views of the end-to-end system
+- [End-to-end demo](docs/DEMO.md) — setup, live rehearsal, fallback, narration, and cleanup
 
 The MVP centers on one claim: Lou can find a regression ordinary CI misses, propose a minimal fix, and prove the fix works through repeatable baseline → PR → fix evidence.

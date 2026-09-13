@@ -989,11 +989,12 @@ def _write_once(target: Path, content: bytes) -> None:
         except FileExistsError:
             if not _existing_artifact_matches(target, content):
                 raise RepositoryGraphError("a different completed graph artifact already exists")
-        directory = os.open(target.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        if os.name != "nt":
+            directory = os.open(target.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
     finally:
         temporary.unlink(missing_ok=True)
 
