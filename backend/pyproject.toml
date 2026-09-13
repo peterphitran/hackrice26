@@ -13,6 +13,9 @@ dependencies = [
   "fastapi==0.141.1",
   "google-genai>=2.0,<3.0",
   "networkx==3.6.1",
+  "opentelemetry-api==1.39.1",
+  "opentelemetry-exporter-otlp-proto-http==1.39.1",
+  "opentelemetry-sdk==1.39.1",
   "pydantic==2.13.5",
   "pydantic-settings==2.15.0",
   "psycopg[binary]==3.3.5",
@@ -39,7 +42,7 @@ packages = ["apps", "contracts", "lou"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q --import-mode=importlib"
 markers = [
   "integration: tests requiring a local PostgreSQL service",
 ]

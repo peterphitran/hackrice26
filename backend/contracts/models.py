@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ContractModel(BaseModel):
@@ -100,7 +100,9 @@ class ImpactEvaluation(ContractModel):
     analysis_run_id: str
     repository_id: str
     predictor_revision: str
-    labels: dict[str, Literal["true_positive", "false_positive", "false_negative"]] = Field(default_factory=dict)
+    labels: dict[str, Literal["true_positive", "false_positive", "false_negative"]] = Field(
+        default_factory=dict
+    )
     precision: float = Field(ge=0, le=1)
     recall: float = Field(ge=0, le=1)
     false_negative_rate: float = Field(ge=0, le=1)
@@ -144,6 +146,54 @@ class Evidence(ContractModel):
     artifact_uri: str | None = None
     artifact_sha256: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class RuntimeObservation(ContractModel):
+    """A sanitized, bounded observation from Lou's local runtime instrumentation."""
+
+    observation_id: str = Field(min_length=1, max_length=255)
+    analysis_run_id: str = Field(min_length=1, max_length=255)
+    phase: Literal["baseline", "candidate", "fix", "comparison"]
+    span_name: Literal[
+        "lou.analysis",
+        "lou.workload.execute",
+        "lou.sandbox.execute",
+        "lou.verification.compare",
+        "lou.db.query",
+        "lou.correlation.resolve",
+    ]
+    observed_at: datetime
+    status: Literal["ok", "error", "unavailable", "sampled_out", "limited"]
+    commit_sha: str = Field(min_length=1, max_length=255)
+    workload_id: str | None = Field(default=None, max_length=255)
+    verification_run_id: str | None = Field(default=None, max_length=255)
+    trace_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
+    span_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{16}$")
+    duration_ms: float | None = Field(default=None, ge=0)
+    symbol_key: str | None = Field(default=None, max_length=512)
+    graph_node_id: str | None = Field(default=None, max_length=512)
+    correlation_method: (
+        Literal["exact", "normalized", "workload", "unresolved", "ambiguous"] | None
+    ) = None
+    correlation_confidence: float | None = Field(default=None, ge=0, le=1)
+    attributes: dict[str, str | int | float | bool] = Field(default_factory=dict)
+    redaction_count: int = Field(default=0, ge=0)
+    sampled: bool = True
+    exporter_status: Literal["disabled", "healthy", "sampled_out", "unavailable", "failed"] = (
+        "disabled"
+    )
+
+    @field_validator("attributes")
+    @classmethod
+    def validate_attributes(
+        cls, value: dict[str, str | int | float | bool]
+    ) -> dict[str, str | int | float | bool]:
+        if len(value) > 24:
+            raise ValueError("runtime observation allows at most 24 attributes")
+        for key, item in value.items():
+            if len(key) > 64 or len(str(item).encode("utf-8")) > 256:
+                raise ValueError("runtime observation attribute exceeds safe limits")
+        return value
 
 
 class VerificationResult(ContractModel):

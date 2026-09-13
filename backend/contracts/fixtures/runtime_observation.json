@@ -1,0 +1,23 @@
+{
+  "schema_version": "1",
+  "observation_id": "telemetry_candidate_checkout_001",
+  "analysis_run_id": "run_demo_001",
+  "phase": "candidate",
+  "span_name": "lou.db.query",
+  "observed_at": "2026-09-13T00:00:00Z",
+  "status": "ok",
+  "commit_sha": "candidate-sha",
+  "workload_id": "checkout-k6",
+  "verification_run_id": "verify_run_demo_001_candidate",
+  "trace_id": "0123456789abcdef0123456789abcdef",
+  "span_id": "0123456789abcdef",
+  "duration_ms": 4.2,
+  "symbol_key": "store.checkout",
+  "graph_node_id": "FUNCTION:store.checkout",
+  "correlation_method": "exact",
+  "correlation_confidence": 1.0,
+  "attributes": {"db.operation": "SELECT", "db.table": "orders"},
+  "redaction_count": 0,
+  "sampled": true,
+  "exporter_status": "healthy"
+}

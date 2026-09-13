@@ -22,6 +22,7 @@ from lou.application.analysis import AnalysisApplicationService, AnalysisRequest
 from lou.core.settings import Settings
 from lou.decision.autonomy import decide_autonomy
 from lou.policies import AutonomyPolicy
+from lou.prediction import predict_impact
 from lou.repository import (
     REGISTRY_REVISION,
     TraversalLimits,
@@ -34,8 +35,8 @@ from lou.repository import (
 from lou.repository import fixture_commands as fixture_commands
 from lou.repository import fixture_workloads as fixture_workloads
 from lou.repository.symbols import extract_changed_symbols
-from lou.prediction import predict_impact
 from lou.scoring import DebtInputs, RemediationInputs
+from lou.telemetry import build_telemetry
 from lou.verification import PhaseObservations, compare_candidate, disposable_worktree
 
 _REGISTRY_REVISION = REGISTRY_REVISION
@@ -94,8 +95,12 @@ class FixtureRepositoryIntelligence:
             fallback_workload_ids=fallback_workload_ids,
         )
         prediction = predict_impact(
-            analysis_run_id=run_id, change=change, snapshot=snapshot, traversal=traversal,
-            workloads=selected, repository_root=request.repository_path,
+            analysis_run_id=run_id,
+            change=change,
+            snapshot=snapshot,
+            traversal=traversal,
+            workloads=selected,
+            repository_root=request.repository_path,
         )
         context = context.model_copy(
             update={
@@ -420,4 +425,11 @@ def build_fixture_service(settings: Settings) -> AnalysisApplicationService:
             settings.artifact_root,
         ),
         FixtureDecisionAdapter(),
+        build_telemetry(
+            exporter=settings.telemetry_exporter,
+            endpoint=settings.telemetry_otlp_endpoint,
+            timeout_seconds=settings.telemetry_export_timeout_seconds,
+            sample_rate=settings.telemetry_sample_rate,
+            max_spans=settings.telemetry_max_spans_per_run,
+        ),
     )

@@ -16,6 +16,7 @@ from contracts import (
     RemediationRequest,
     RepositoryChange,
     RepositoryContext,
+    RuntimeObservation,
     VerificationResult,
     WorkloadSelection,
 )
@@ -74,6 +75,7 @@ def test_published_contract_fixtures_validate() -> None:
         "analysis_job.json": AnalysisJob,
         "repository_change.json": RepositoryChange,
         "repository_context.json": RepositoryContext,
+        "runtime_observation.json": RuntimeObservation,
         "workload_selection.json": WorkloadSelection,
         "finding.json": Finding,
         "evidence.json": Evidence,

@@ -86,6 +86,21 @@ def test_report_reads_persisted_records_and_verifies_relative_artifacts(tmp_path
         artifact_uri=f"file://{artifact}",
         artifact_sha256=digest,
     )
+    runtime_evidence = SimpleNamespace(
+        contract_id="telemetry-candidate",
+        phase="candidate",
+        kind="runtime-observation",
+        source="lou.telemetry",
+        summary={
+            "span_name": "lou.db.query",
+            "exporter_status": "healthy",
+            "workload_id": "checkout-load",
+            "symbol_key": "store.app.Store.checkout",
+            "attributes": {"db.operation": "SELECT", "db.table": "products"},
+        },
+        artifact_uri=None,
+        artifact_sha256=None,
+    )
     rows = {
         WorkloadRecord: [
             SimpleNamespace(
@@ -120,7 +135,7 @@ def test_report_reads_persisted_records_and_verifies_relative_artifacts(tmp_path
                 symbol_key="store.app.Store.checkout",
             )
         ],
-        EvidenceRecord: [context, report_evidence],
+        EvidenceRecord: [context, report_evidence, runtime_evidence],
         LouDecisionRecord: [
             SimpleNamespace(
                 decision_id="decision-run-1",
@@ -142,6 +157,8 @@ def test_report_reads_persisted_records_and_verifies_relative_artifacts(tmp_path
     assert '"path": "run-1/comparison.json"' in first
     assert "# Lou Evidence Report" in report.render_markdown()
     assert "Query count increased" in report.render_markdown()
+    assert "## Runtime Correlation" in report.render_markdown()
+    assert "store.app.Store.checkout" in report.render_markdown()
 
 
 def test_report_rejects_missing_or_tampered_artifacts(tmp_path: Path) -> None:

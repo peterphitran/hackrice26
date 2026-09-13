@@ -65,11 +65,22 @@ class EvidenceReport:
         if prediction:
             item = _mapping(prediction)
             lines.extend(["", "## Impact Prediction", ""])
-            lines.append(f"- Confidence: `{item.get('confidence')}`; revision: `{item.get('predictor_revision')}`")
+            confidence = item.get("confidence")
+            revision = item.get("predictor_revision")
+            lines.append(f"- Confidence: `{confidence}`; revision: `{revision}`")
             lines.append(f"- Predicted items: `{len(_list(item.get('items', [])))}`")
             omitted = _list(item.get("omitted_context", []))
             if omitted:
                 lines.append(f"- Omitted context: {', '.join(str(value) for value in omitted)}")
+        runtime = _mapping(self.payload.get("runtime_correlation"))
+        if runtime:
+            lines.extend(["", "## Runtime Correlation", ""])
+            lines.append(f"- Telemetry: `{runtime.get('exporter_status', 'unavailable')}`")
+            lines.append(f"- Observations: `{runtime.get('observation_count', 0)}`")
+            for symbol in _list(runtime.get("resolved_symbols", [])):
+                lines.append(f"- Correlated symbol: `{symbol}`")
+            for unresolved in _list(runtime.get("unresolved", [])):
+                lines.append(f"- Unresolved runtime mapping: `{unresolved}`")
         lines.extend(["", "## Observed Verification", ""])
         lines.append("- Execution evidence below is observed verification, not prediction.")
         lines.extend(["", "## Measurements", ""])
@@ -197,6 +208,7 @@ class EvidenceReportReader:
             "context": _context(evidence),
             "prediction": dict(prediction.payload) if prediction is not None else None,
             "observed": _observed(evidence),
+            "runtime_correlation": _runtime_correlation(evidence),
             "workloads": [_workload(item) for item in workloads],
             "verification_runs": [
                 _verification(item, workloads, classifications) for item in verification_runs
@@ -219,6 +231,42 @@ def _context(evidence: list[EvidenceRecord]) -> dict[str, object]:
 
 def _observed(evidence: list[EvidenceRecord]) -> dict[str, object]:
     return {"evidence": [item.summary for item in evidence if item.kind != "impact-prediction"]}
+
+
+def _runtime_correlation(evidence: list[EvidenceRecord]) -> dict[str, object]:
+    """Summarize persisted, already-redacted telemetry without contacting a collector."""
+
+    observations = [item.summary for item in evidence if item.kind == "runtime-observation"]
+    if not observations:
+        return {}
+    statuses = sorted(
+        {
+            str(item.get("exporter_status", "unavailable"))
+            for item in observations
+            if isinstance(item, dict)
+        }
+    )
+    resolved = sorted(
+        {
+            str(item["symbol_key"])
+            for item in observations
+            if isinstance(item, dict) and isinstance(item.get("symbol_key"), str)
+        }
+    )
+    unresolved = sorted(
+        {
+            str(item.get("workload_id") or item.get("span_name"))
+            for item in observations
+            if isinstance(item, dict)
+            and item.get("correlation_method") in {"unresolved", "ambiguous"}
+        }
+    )
+    return {
+        "exporter_status": ",".join(statuses),
+        "observation_count": len(observations),
+        "resolved_symbols": resolved,
+        "unresolved": unresolved,
+    }
 
 
 def _workload(record: WorkloadRecord) -> dict[str, object]:
