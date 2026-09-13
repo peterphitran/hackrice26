@@ -177,6 +177,46 @@ class SqlAlchemyResultRepository(ResultRepository):
             record.status = status
             record.completed_at = datetime.now(UTC)
 
+    def complete_with_evidence(
+        self,
+        verification_id: UUID,
+        status: VerificationStatus,
+        evidence: list[EvidenceInput],
+    ) -> list[UUID]:
+        """Complete an attempt and append evidence in one transaction."""
+
+        if status not in {"passed", "failed", "inconclusive"}:
+            raise PersistenceError("verification completion requires a terminal status")
+        with self._session_factory.begin() as session:
+            verification = session.get(VerificationRunRecord, verification_id)
+            if verification is None or verification.status not in {"queued", "running"}:
+                raise PersistenceError("verification attempt cannot be completed")
+            records: list[EvidenceRecord] = []
+            for value in evidence:
+                _validate_artifact_pair(value.artifact_uri, value.artifact_sha256)
+                if value.finding_id is not None:
+                    finding = session.get(FindingRecord, value.finding_id)
+                    if finding is None or finding.analysis_run_id != value.analysis_run_id:
+                        raise PersistenceError("evidence finding must belong to the analysis run")
+                records.append(
+                    EvidenceRecord(
+                        analysis_run_id=value.analysis_run_id,
+                        finding_id=value.finding_id,
+                        phase=value.phase,
+                        kind=value.kind,
+                        source=value.source,
+                        collected_at=value.collected_at,
+                        summary=value.summary,
+                        artifact_uri=value.artifact_uri,
+                        artifact_sha256=value.artifact_sha256,
+                    )
+                )
+            verification.status = status
+            verification.completed_at = datetime.now(UTC)
+            session.add_all(records)
+            session.flush()
+            return [record.id for record in records]
+
     def add_finding(self, value: FindingInput) -> tuple[UUID, bool]:
         with self._session_factory.begin() as session:
             existing = session.scalar(

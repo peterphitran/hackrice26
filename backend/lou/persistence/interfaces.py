@@ -116,6 +116,13 @@ class ResultRepository(Protocol):
 
     def complete_verification(self, verification_id: UUID, status: VerificationStatus) -> None: ...
 
+    def complete_with_evidence(
+        self,
+        verification_id: UUID,
+        status: VerificationStatus,
+        evidence: list[EvidenceInput],
+    ) -> list[UUID]: ...
+
     def add_finding(self, value: FindingInput) -> tuple[UUID, bool]: ...
 
     def append_evidence(self, value: EvidenceInput) -> UUID: ...
