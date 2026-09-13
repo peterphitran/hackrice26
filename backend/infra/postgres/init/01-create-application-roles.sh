@@ -2,13 +2,13 @@
 set -eu
 
 psql --username "$POSTGRES_USER" --dbname postgres \
-  --set=app_password="$LOU_APP_PASSWORD" \
+  --set=runtime_password="$LOU_RUNTIME_PASSWORD" \
   --set=test_app_password="$LOU_TEST_APP_PASSWORD" <<'SQL'
 SELECT format(
-    'CREATE ROLE lou_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD %L',
-    :'app_password'
+    'CREATE ROLE lou LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD %L',
+    :'runtime_password'
 )
-WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'lou_app')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'lou')
 \gexec
 
 SELECT format(
@@ -25,6 +25,6 @@ if ! psql --username "$POSTGRES_USER" --dbname postgres --tuples-only --no-align
 fi
 
 psql --username "$POSTGRES_USER" --dbname postgres <<'SQL'
-GRANT CONNECT ON DATABASE lou TO lou_app;
+GRANT CONNECT ON DATABASE lou TO lou;
 GRANT CONNECT ON DATABASE lou_test TO lou_test_app;
 SQL
