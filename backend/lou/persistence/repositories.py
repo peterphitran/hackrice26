@@ -15,12 +15,22 @@ from lou.persistence.interfaces import (
     AnalysisRunInput,
     AnalysisRunRepository,
     AnalysisRunView,
+    EvidenceInput,
+    FindingInput,
     InvalidRunTransitionError,
     PersistenceError,
+    ResultRepository,
     RunConflictError,
     RunStatus,
+    VerificationRunInput,
+    VerificationStatus,
 )
-from lou.persistence.models import AnalysisRunRecord
+from lou.persistence.models import (
+    AnalysisRunRecord,
+    EvidenceRecord,
+    FindingRecord,
+    VerificationRunRecord,
+)
 
 
 class SqlAlchemyAnalysisRunRepository(AnalysisRunRepository):
@@ -131,3 +141,94 @@ def _to_view(record: AnalysisRunRecord) -> AnalysisRunView:
         completed_at=record.completed_at,
         created_at=record.created_at,
     )
+
+
+class SqlAlchemyResultRepository(ResultRepository):
+    """Transactional adapter for verification attempts, findings, and evidence."""
+
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self._session_factory = session_factory
+
+    def append_verification(self, value: VerificationRunInput) -> UUID:
+        _validate_artifact_pair(value.artifact_uri, value.artifact_sha256)
+        with self._session_factory.begin() as session:
+            record = VerificationRunRecord(
+                analysis_run_id=value.analysis_run_id,
+                workload_id=value.workload_id,
+                phase=value.phase,
+                attempt=value.attempt,
+                status=value.status,
+                commit_sha=value.commit_sha,
+                aggregate_metrics=value.metrics,
+                artifact_uri=value.artifact_uri,
+                artifact_sha256=value.artifact_sha256,
+            )
+            session.add(record)
+            session.flush()
+            return record.id
+
+    def complete_verification(self, verification_id: UUID, status: VerificationStatus) -> None:
+        if status not in {"passed", "failed", "inconclusive"}:
+            raise PersistenceError("verification completion requires a terminal status")
+        with self._session_factory.begin() as session:
+            record = session.get(VerificationRunRecord, verification_id)
+            if record is None or record.status not in {"queued", "running"}:
+                raise PersistenceError("verification attempt cannot be completed")
+            record.status = status
+            record.completed_at = datetime.now(UTC)
+
+    def add_finding(self, value: FindingInput) -> tuple[UUID, bool]:
+        with self._session_factory.begin() as session:
+            existing = session.scalar(
+                select(FindingRecord).where(
+                    FindingRecord.analysis_run_id == value.analysis_run_id,
+                    FindingRecord.phase == value.phase,
+                    FindingRecord.fingerprint == value.fingerprint,
+                )
+            )
+            if existing is not None:
+                return existing.id, True
+            record = FindingRecord(
+                analysis_run_id=value.analysis_run_id,
+                fingerprint=value.fingerprint,
+                source=value.source,
+                category=value.category,
+                severity=value.severity,
+                confidence=value.confidence,
+                phase=value.phase,
+                title=value.title,
+                message=value.message,
+                file_path=value.file_path,
+                symbol_key=value.symbol_key,
+                details=value.metadata,
+            )
+            session.add(record)
+            session.flush()
+            return record.id, False
+
+    def append_evidence(self, value: EvidenceInput) -> UUID:
+        _validate_artifact_pair(value.artifact_uri, value.artifact_sha256)
+        with self._session_factory.begin() as session:
+            if value.finding_id is not None:
+                finding = session.get(FindingRecord, value.finding_id)
+                if finding is None or finding.analysis_run_id != value.analysis_run_id:
+                    raise PersistenceError("evidence finding must belong to the analysis run")
+            record = EvidenceRecord(
+                analysis_run_id=value.analysis_run_id,
+                finding_id=value.finding_id,
+                phase=value.phase,
+                kind=value.kind,
+                source=value.source,
+                collected_at=value.collected_at,
+                summary=value.summary,
+                artifact_uri=value.artifact_uri,
+                artifact_sha256=value.artifact_sha256,
+            )
+            session.add(record)
+            session.flush()
+            return record.id
+
+
+def _validate_artifact_pair(uri: str | None, digest: str | None) -> None:
+    if (uri is None) != (digest is None):
+        raise PersistenceError("artifact URI and SHA-256 must be supplied together")

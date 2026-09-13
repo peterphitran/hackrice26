@@ -23,7 +23,7 @@ def upgrade() -> None:
 
     op.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
     op.execute("CREATE SCHEMA IF NOT EXISTS lou AUTHORIZATION lou_migrator")
-    op.execute("GRANT USAGE ON SCHEMA lou TO lou_app, lou_test_app")
+    op.execute("GRANT USAGE ON SCHEMA lou TO lou, lou_test_app")
     op.execute(
         """
         CREATE TABLE lou.repositories (
@@ -154,8 +154,8 @@ def upgrade() -> None:
     op.execute("CREATE INDEX verification_runs_run_phase_idx ON lou.verification_runs (analysis_run_id, phase)")
     op.execute("CREATE INDEX findings_run_phase_idx ON lou.findings (analysis_run_id, phase)")
     op.execute("CREATE INDEX evidence_run_phase_idx ON lou.evidence (analysis_run_id, phase)")
-    op.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA lou TO lou_app, lou_test_app")
-    op.execute("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA lou TO lou_app, lou_test_app")
+    op.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA lou TO lou, lou_test_app")
+    op.execute("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA lou TO lou, lou_test_app")
 
 
 def downgrade() -> None:

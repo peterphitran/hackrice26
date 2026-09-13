@@ -11,11 +11,15 @@ from lou.persistence.interfaces import (
     AnalysisRunInput,
     AnalysisRunRepository,
     AnalysisRunView,
+    EvidenceInput,
+    FindingInput,
     InvalidRunTransitionError,
     PersistenceError,
+    ResultRepository,
     RunConflictError,
+    VerificationRunInput,
 )
-from lou.persistence.repositories import SqlAlchemyAnalysisRunRepository
+from lou.persistence.repositories import SqlAlchemyAnalysisRunRepository, SqlAlchemyResultRepository
 
 __all__ = [
     "DatabaseHealth",
@@ -25,9 +29,14 @@ __all__ = [
     "AnalysisRunInput",
     "AnalysisRunRepository",
     "AnalysisRunView",
+    "EvidenceInput",
+    "FindingInput",
     "InMemoryAnalysisRunRepository",
     "InvalidRunTransitionError",
     "PersistenceError",
     "RunConflictError",
     "SqlAlchemyAnalysisRunRepository",
+    "SqlAlchemyResultRepository",
+    "ResultRepository",
+    "VerificationRunInput",
 ]
