@@ -76,9 +76,11 @@ def compare_candidate(
     candidate_metrics = candidate_load.metrics
     classes = _failure_classes(baseline_checks, candidate_checks)
 
-    tool_failure = any(
-        check.outcome == "command_failed" for check in baseline_checks + candidate_checks
-    ) or baseline_load.command_failed or candidate_load.command_failed
+    tool_failure = (
+        any(check.outcome == "command_failed" for check in baseline_checks + candidate_checks)
+        or baseline_load.command_failed
+        or candidate_load.command_failed
+    )
     enough_samples = (
         len(baseline_load.samples) == expected_repetitions
         and len(candidate_load.samples) == expected_repetitions
@@ -100,7 +102,10 @@ def compare_candidate(
     regression = query_regression or latency_regression
 
     status: Literal["passed", "failed", "inconclusive"]
-    if tool_failure or not enough_samples or noisy:
+    # Query count is an exact application-level observation in the local
+    # fixture.  Timing variance must prevent a latency-only conclusion, but it
+    # must not hide a separately proven N+1 query regression.
+    if tool_failure or not enough_samples or (noisy and not query_regression):
         status = "inconclusive"
     elif classes["candidate_only"] or regression:
         status = "failed"
