@@ -18,7 +18,10 @@ from contracts import (
     WorkloadSelection,
 )
 
-AnalysisStatus = Literal["succeeded", "failed", "inconclusive", "blocked"]
+AnalysisStatus = Literal["succeeded", "failed", "inconclusive", "running", "cancelled"]
+RunSnapshotStatus = Literal[
+    "queued", "running", "succeeded", "failed", "cancelled", "inconclusive"
+]
 MAX_CONFIGURATION_BYTES = 32_768
 
 
@@ -71,6 +74,16 @@ class VerificationBundle:
 
 
 @dataclass(frozen=True)
+class RunSnapshot:
+    """State returned when a request creates or reuses an analysis run."""
+
+    analysis_run_id: str
+    status: RunSnapshotStatus
+    created: bool
+    message: str | None = None
+
+
+@dataclass(frozen=True)
 class AnalysisResult:
     """Safe, public result returned to CLI and future API adapters."""
 
@@ -88,7 +101,7 @@ class AnalysisStore(Protocol):
 
     def create_or_get(
         self, request: AnalysisRequest, deduplication_key: str
-    ) -> tuple[str, bool]: ...
+    ) -> RunSnapshot: ...
 
     def record_context(
         self,
@@ -172,9 +185,19 @@ class AnalysisApplicationService:
 
         self._validate(request)
         key = self._force_key(request) if request.force_new_run else request.deduplication_key()
-        run_id, reused = self._store.create_or_get(request, key)
-        if reused:
-            return AnalysisResult(run_id, "succeeded", True, ("validate", "initialize"))
+        snapshot = self._store.create_or_get(request, key)
+        run_id = snapshot.analysis_run_id
+        if not snapshot.created:
+            reused_status: AnalysisStatus = (
+                "running" if snapshot.status == "queued" else snapshot.status
+            )
+            return AnalysisResult(
+                run_id,
+                reused_status,
+                True,
+                ("validate", "initialize"),
+                snapshot.message,
+            )
 
         stages = ["validate", "initialize"]
         verification_results: list[VerificationResult] = []

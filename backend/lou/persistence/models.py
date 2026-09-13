@@ -119,6 +119,7 @@ class VerificationRunRecord(Base):
     )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    contract_id: Mapped[str | None] = mapped_column(String(255))
     analysis_run_id: Mapped[UUID] = mapped_column(
         Uuid, ForeignKey("lou.analysis_runs.id", ondelete="CASCADE"), nullable=False
     )
@@ -156,6 +157,7 @@ class FindingRecord(Base):
     )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    contract_id: Mapped[str | None] = mapped_column(String(255))
     analysis_run_id: Mapped[UUID] = mapped_column(
         Uuid, ForeignKey("lou.analysis_runs.id", ondelete="CASCADE"), nullable=False
     )
@@ -191,6 +193,7 @@ class EvidenceRecord(Base):
     )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    contract_id: Mapped[str | None] = mapped_column(String(255))
     analysis_run_id: Mapped[UUID] = mapped_column(
         Uuid, ForeignKey("lou.analysis_runs.id", ondelete="CASCADE"), nullable=False
     )
@@ -207,3 +210,27 @@ class EvidenceRecord(Base):
     collected_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class LouDecisionRecord(Base):
+    """One durable deterministic decision for an analysis run."""
+
+    __tablename__ = "lou_decisions"
+    __table_args__ = ({"schema": "lou"},)
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    analysis_run_id: Mapped[UUID] = mapped_column(
+        Uuid,
+        ForeignKey("lou.analysis_runs.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    decision_id: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    debt_risk: Mapped[float] = mapped_column(nullable=False)
+    remediation_risk: Mapped[float | None] = mapped_column()
+    confidence: Mapped[float] = mapped_column(nullable=False)
+    autonomy_level: Mapped[int] = mapped_column(Integer, nullable=False)
+    rationale: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False, server_default="{}")
+    details: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False, server_default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

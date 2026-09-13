@@ -5,6 +5,7 @@ from lou.application.analysis import (
     AnalysisRequest,
     AnalysisResult,
     AnalysisStatus,
+    RunSnapshot,
     VerificationBundle,
 )
 
@@ -13,5 +14,6 @@ __all__ = [
     "AnalysisRequest",
     "AnalysisResult",
     "AnalysisStatus",
+    "RunSnapshot",
     "VerificationBundle",
 ]

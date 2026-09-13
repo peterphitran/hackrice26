@@ -55,6 +55,39 @@ class AnalysisRunView:
     created_at: datetime | None = None
 
 
+@dataclass(frozen=True)
+class PersistedVerificationBundle:
+    """Database identities for one atomic verification/finding/evidence write."""
+
+    verification_id: UUID
+    finding_ids: dict[str, UUID] = field(default_factory=dict)
+    evidence_ids: dict[str, UUID] = field(default_factory=dict)
+
+
+DecisionAction = Literal["report", "recommend", "generate_patch", "open_pr"]
+
+
+@dataclass(frozen=True)
+class DecisionInput:
+    """Durable form of a shared Lou decision contract."""
+
+    analysis_run_id: UUID
+    decision_id: str
+    action: DecisionAction
+    debt_risk: float
+    remediation_risk: float | None
+    confidence: float
+    autonomy_level: int
+    rationale: dict[str, object] = field(default_factory=dict)
+    metadata: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class DecisionView:
+    id: UUID
+    value: DecisionInput
+
+
 class AnalysisRunRepository(Protocol):
     """Operations available to domain services without exposing SQLAlchemy."""
 
@@ -78,6 +111,7 @@ class VerificationRunInput:
     metrics: dict[str, object] = field(default_factory=dict)
     artifact_uri: str | None = None
     artifact_sha256: str | None = None
+    contract_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -94,6 +128,7 @@ class FindingInput:
     file_path: str | None = None
     symbol_key: str | None = None
     metadata: dict[str, object] = field(default_factory=dict)
+    contract_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -107,6 +142,7 @@ class EvidenceInput:
     summary: dict[str, object] = field(default_factory=dict)
     artifact_uri: str | None = None
     artifact_sha256: str | None = None
+    contract_id: str | None = None
 
 
 class ResultRepository(Protocol):
@@ -126,3 +162,18 @@ class ResultRepository(Protocol):
     def add_finding(self, value: FindingInput) -> tuple[UUID, bool]: ...
 
     def append_evidence(self, value: EvidenceInput) -> UUID: ...
+
+    def persist_verification_bundle(
+        self,
+        verification: VerificationRunInput,
+        findings: list[FindingInput],
+        evidence: list[EvidenceInput],
+    ) -> PersistedVerificationBundle: ...
+
+
+class DecisionRepository(Protocol):
+    """Idempotent persistence boundary for an analysis decision."""
+
+    def save(self, value: DecisionInput) -> tuple[DecisionView, bool]: ...
+
+    def get_for_run(self, analysis_run_id: UUID) -> DecisionView | None: ...

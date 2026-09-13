@@ -17,6 +17,7 @@ from lou.persistence.models import (
     AnalysisRunRecord,
     EvidenceRecord,
     FindingRecord,
+    LouDecisionRecord,
     RepositoryRecord,
     VerificationRunRecord,
     WorkloadRecord,
@@ -46,6 +47,7 @@ def session_factory() -> Iterator[Any]:
 def seeded_db(session_factory: Any) -> Iterator[tuple[Any, AnalysisRunView, UUID]]:
     with session_factory.begin() as session:
         session.execute(delete(EvidenceRecord))
+        session.execute(delete(LouDecisionRecord))
         session.execute(delete(VerificationRunRecord))
         session.execute(delete(FindingRecord))
         session.execute(delete(WorkloadRecord))

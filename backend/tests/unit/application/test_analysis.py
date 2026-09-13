@@ -16,19 +16,22 @@ from lou.application.analysis import (
     AnalysisApplicationService,
     AnalysisRequest,
     AnalysisStatus,
+    RunSnapshot,
     VerificationBundle,
 )
 
 
 class Store:
-    def __init__(self, reused: bool = False) -> None:
+    def __init__(self, reused: bool = False, reused_status: str = "succeeded") -> None:
         self.reused = reused
+        self.reused_status = reused_status
         self.calls: list[str] = []
         self.finished: list[str] = []
 
-    def create_or_get(self, request: AnalysisRequest, deduplication_key: str) -> tuple[str, bool]:
+    def create_or_get(self, request: AnalysisRequest, deduplication_key: str) -> RunSnapshot:
         self.calls.append("initialize")
-        return "run-1", self.reused
+        status = self.reused_status if self.reused else "queued"
+        return RunSnapshot("run-1", status, not self.reused)  # type: ignore[arg-type]
 
     def record_context(
         self,
@@ -239,6 +242,20 @@ def test_service_returns_existing_run_without_repeating_work(tmp_path: Path) -> 
     assert result.stages == ("validate", "initialize")
     assert calls == []
     assert store.calls == ["initialize"]
+
+
+@pytest.mark.parametrize("status", ["failed", "inconclusive", "running"])
+def test_reused_run_preserves_actual_status(
+    tmp_path: Path, status: str
+) -> None:
+    calls: list[str] = []
+    store = Store(reused=True, reused_status=status)
+
+    result = _service(calls, store).run(_request(tmp_path))
+
+    assert result.reused is True
+    assert result.status == status
+    assert calls == []
 
 
 def test_no_workload_is_inconclusive_without_verification(tmp_path: Path) -> None:

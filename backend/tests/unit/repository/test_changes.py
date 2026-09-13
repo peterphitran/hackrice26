@@ -11,7 +11,7 @@ import pytest
 from contracts import RepositoryChange
 from lou.core.errors import GitExecutionError, InvalidCommitError, InvalidRepositoryError
 from lou.repository import changes as changes_module
-from lou.repository import parse_repository_changes
+from lou.repository import parse_repository_changes, resolve_repository_revisions
 
 
 def _git(repository: Path, *arguments: str) -> str:
@@ -283,6 +283,51 @@ def test_revisions_resolve_to_full_commit_ids_and_serialize(git_repository: Path
         "original_candidate_revision": "HEAD",
         "rename_similarity_threshold": 50,
     }
+
+
+def test_preflight_resolves_sha1_and_requires_ancestor(git_repository: Path) -> None:
+    base = _commit(git_repository, "base")
+    (git_repository / "module.py").write_text("VALUE = 1\n")
+    candidate = _commit(git_repository, "candidate")
+
+    resolved = resolve_repository_revisions(
+        repository_path=git_repository,
+        base_revision="HEAD~1",
+        candidate_revision="HEAD",
+    )
+
+    assert resolved.repository_root == git_repository.resolve()
+    assert resolved.base_commit_sha == base
+    assert resolved.candidate_commit_sha == candidate
+
+
+def test_preflight_rejects_equal_revisions(git_repository: Path) -> None:
+    commit = _commit(git_repository, "only commit")
+
+    with pytest.raises(InvalidCommitError) as error:
+        resolve_repository_revisions(
+            repository_path=git_repository,
+            base_revision=commit,
+            candidate_revision=commit,
+        )
+
+    assert error.value.role == "candidate"
+
+
+def test_preflight_rejects_unrelated_candidate(git_repository: Path) -> None:
+    base = _commit(git_repository, "base")
+    _git(git_repository, "switch", "--orphan", "unrelated")
+    (git_repository / "other.py").write_text("VALUE = 2\n")
+    candidate = _commit(git_repository, "unrelated candidate")
+
+    with pytest.raises(InvalidCommitError) as error:
+        resolve_repository_revisions(
+            repository_path=git_repository,
+            base_revision=base,
+            candidate_revision=candidate,
+        )
+
+    assert error.value.role == "candidate"
 
 
 def test_git_replace_refs_do_not_change_exact_commit_comparison(git_repository: Path) -> None:
