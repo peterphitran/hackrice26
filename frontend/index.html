@@ -1,0 +1,619 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lou — Decision Walkthrough</title>
+<style>
+  :root {
+    --bg: #fbfaf8;
+    --panel: #ffffff;
+    --ink: #1b1a18;
+    --muted: #6b6761;
+    --line: #e4e0da;
+    --pass: #1f7a4d;
+    --pass-bg: #e8f5ee;
+    --fail: #b3261e;
+    --fail-bg: #fdeceb;
+    --accent: #2f4858;
+    --radius: 10px;
+  }
+  :root:not([data-theme="light"]) { color-scheme: light; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #16181a;
+      --panel: #1e2124;
+      --ink: #e8e6e3;
+      --muted: #9a958e;
+      --line: #31353a;
+      --pass: #67d39b;
+      --pass-bg: #14301f;
+      --fail: #f2938c;
+      --fail-bg: #35191a;
+      --accent: #9fc2d6;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #16181a; --panel: #1e2124; --ink: #e8e6e3; --muted: #9a958e;
+    --line: #31353a; --pass: #67d39b; --pass-bg: #14301f; --fail: #f2938c;
+    --fail-bg: #35191a; --accent: #9fc2d6; color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.55 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding-block: 32px; padding-left: 20px; padding-right: 20px; }
+
+  header h1 { margin: 0 0 6px; font-size: 1.5rem; letter-spacing: -0.01em; }
+  header p { margin: 0; color: var(--muted); max-width: 60ch; }
+  .ver { font-size: .78rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  .note {
+    margin: 20px 0 26px; padding: 12px 14px; border-left: 3px solid var(--accent);
+    background: var(--panel); border-radius: 0 var(--radius) var(--radius) 0;
+    color: var(--muted); font-size: .88rem;
+  }
+
+  .cases { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+  .case {
+    text-align: left; cursor: pointer; padding: 14px; border-radius: var(--radius);
+    border: 1px solid var(--line); background: var(--panel); color: inherit;
+    font: inherit; display: grid; gap: 6px; transition: border-color .12s, transform .12s;
+  }
+  .case:hover { border-color: var(--accent); }
+  .case[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .case b { font-size: .95rem; }
+  .case span { font-size: .8rem; color: var(--muted); }
+
+  .verdict {
+    margin-top: 26px; padding: 18px; border-radius: var(--radius);
+    border: 1px solid var(--line); background: var(--panel);
+  }
+  .verdict h2 { margin: 0 0 4px; font-size: 1.05rem; }
+  .verdict > p { margin: 0 0 16px; color: var(--muted); font-size: .9rem; }
+
+  .metrics { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); margin-bottom: 16px; }
+  .metric { padding: 10px 12px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line); }
+  .metric dt { font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 3px; }
+  .metric dd { margin: 0; font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+
+  .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: .78rem; font-weight: 600; }
+  .pill.ok { background: var(--pass-bg); color: var(--pass); }
+  .pill.no { background: var(--fail-bg); color: var(--fail); }
+
+  .reasons { margin: 0 0 18px; padding-left: 18px; font-size: .88rem; }
+  .reasons li { margin-bottom: 4px; }
+
+  h3 { font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 10px; }
+
+  .gates { display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .gate { display: grid; grid-template-columns: 58px 1fr; gap: 12px; padding: 10px 12px; background: var(--panel); align-items: start; }
+  .gate.failed { background: var(--fail-bg); }
+  .gate code { font-size: .85rem; font-weight: 600; }
+  .gate p { margin: 3px 0 0; font-size: .82rem; color: var(--muted); }
+  .mark { font-size: .72rem; font-weight: 700; letter-spacing: .04em; }
+  .mark.ok { color: var(--pass); }
+  .mark.no { color: var(--fail); }
+
+  .wl { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+  .wl span { font-size: .82rem; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); }
+
+  details { margin-top: 20px; }
+  summary { cursor: pointer; font-size: .85rem; color: var(--muted); }
+  pre {
+    margin: 10px 0 0; padding: 12px; background: var(--bg); border: 1px solid var(--line);
+    border-radius: 8px; overflow-x: auto; font-size: .78rem; line-height: 1.5;
+  }
+  footer { margin-top: 32px; color: var(--muted); font-size: .8rem; }
+  .loading { padding: 40px 0; color: var(--muted); }
+
+  .tabs { display: flex; gap: 4px; margin: 22px 0 0; border-bottom: 1px solid var(--line); }
+  .tab {
+    border: 0; background: none; color: var(--muted); font: inherit; font-size: .9rem;
+    padding: 9px 14px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  .tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+
+  form.analyze {
+    display: grid; gap: 12px; grid-template-columns: 1fr 160px 160px auto; align-items: end;
+    padding: 16px; border: 1px solid var(--line); border-radius: var(--radius);
+    background: var(--panel); margin-top: 22px;
+  }
+  @media (max-width: 760px) { form.analyze { grid-template-columns: 1fr; } }
+  form.analyze label { display: grid; gap: 5px; font-size: .78rem; color: var(--muted); }
+  form.analyze input {
+    font: inherit; font-size: .88rem; padding: 8px 10px; border-radius: 7px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--ink); min-width: 0;
+  }
+  form.analyze button {
+    font: inherit; font-size: .88rem; font-weight: 600; padding: 9px 18px; border-radius: 7px;
+    border: 1px solid var(--accent); background: var(--accent); color: var(--bg); cursor: pointer;
+  }
+  form.analyze button:disabled { opacity: .55; cursor: progress; }
+
+  .err { margin-top: 16px; padding: 12px 14px; border-radius: var(--radius);
+         background: var(--fail-bg); color: var(--fail); font-size: .88rem; }
+
+  .bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin-top: 6px; }
+  .bar i { display: block; height: 100%; background: var(--accent); }
+
+  .lists { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+  .list { border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: var(--bg); }
+  .list h4 { margin: 0 0 8px; font-size: .78rem; text-transform: uppercase;
+             letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+  .list ul { margin: 0; padding-left: 16px; font-size: .82rem; max-height: 190px; overflow-y: auto; }
+  .list li { margin-bottom: 3px; word-break: break-word; }
+  .list .empty { font-size: .82rem; color: var(--muted); font-style: italic; }
+
+  .sel { border-left: 3px solid var(--pass); background: var(--pass-bg); padding: 10px 12px;
+         border-radius: 0 8px 8px 0; margin-bottom: 8px; font-size: .85rem; }
+  .sel code { font-weight: 600; }
+  .sel p { margin: 3px 0 0; color: var(--muted); font-size: .8rem; }
+  .omit { border-left: 3px solid var(--line); padding: 10px 12px; margin-bottom: 8px;
+          font-size: .85rem; background: var(--bg); border-radius: 0 8px 8px 0; }
+  .omit p { margin: 3px 0 0; color: var(--muted); font-size: .8rem; }
+
+  .caveat { margin-top: 20px; padding: 12px 14px; border-left: 3px solid var(--fail);
+            background: var(--panel); border-radius: 0 var(--radius) var(--radius) 0; }
+  .caveat h4 { margin: 0 0 6px; font-size: .8rem; text-transform: uppercase;
+               letter-spacing: .04em; color: var(--fail); }
+  .caveat li { font-size: .84rem; color: var(--muted); margin-bottom: 4px; }
+  .caveat ul { margin: 0; padding-left: 18px; }
+  .hide { display: none; }
+
+  .kg { margin-top: 20px; border: 1px solid var(--line); border-radius: var(--radius);
+        background: var(--panel); padding: 14px; }
+  .kg-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline;
+             justify-content: space-between; margin-bottom: 10px; }
+  .kg-legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: .74rem; color: var(--muted); }
+  .kg-legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .kg-legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  .kg-scroll { overflow-x: auto; }
+  .kg svg { display: block; min-width: 100%; }
+  .kg .lane { font-size: 10px; fill: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .kg .edge { stroke: var(--line); fill: none; stroke-width: 1.2; }
+  .kg .edge.hot { stroke: var(--accent); stroke-width: 1.8; }
+  .kg .nodelabel { font-size: 10.5px; fill: var(--ink); }
+  .kg .nodesub { font-size: 9px; fill: var(--muted); }
+  .kg .node circle { stroke: var(--panel); stroke-width: 2; cursor: default; }
+  .kg .node.changed circle { stroke: var(--ink); stroke-width: 2.5; }
+  .kg-empty { padding: 24px 0; color: var(--muted); font-size: .88rem; font-style: italic; }
+
+  .stages { margin-top: 22px; padding: 16px; border: 1px solid var(--line);
+            border-radius: var(--radius); background: var(--panel); }
+  .progress { height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; margin-bottom: 14px; }
+  .progress i { display: block; height: 100%; background: var(--accent); transition: width .25s ease; }
+  .steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+  .step {
+    display: grid; grid-template-columns: 22px 1fr auto auto; gap: 10px; align-items: center;
+    padding: 6px 4px; font-size: .86rem; color: var(--muted); transition: color .2s;
+  }
+  .step .dot {
+    width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--line);
+    display: grid; place-items: center; font-size: .62rem; font-weight: 700; color: var(--bg);
+  }
+  .step.ok { color: var(--ink); }
+  .step.ok .dot { background: var(--pass); border-color: var(--pass); color: var(--panel); }
+  .step.run { color: var(--ink); }
+  .step.run .dot { border-color: var(--accent); animation: pulse 1s ease-in-out infinite; }
+  .step .det { font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .step .ms { font-size: .72rem; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 52px; text-align: right; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+  @media (prefers-reduced-motion: reduce) {
+    .step.run .dot { animation: none; }
+    .progress i { transition: none; }
+  }
+  @media (max-width: 620px) {
+    .step { grid-template-columns: 22px 1fr; }
+    .step .det, .step .ms { grid-column: 2; text-align: left; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Lou — Decision Walkthrough</h1>
+    <p>Every proposed fix passes through the same gate ladder. A gate that fails caps how much
+       autonomy Lou may take, so an unverifiable patch cannot reach a pull request.</p>
+    <p class="ver" id="ver"></p>
+  </header>
+
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" aria-selected="true" onclick="tab('live')">Analyze a repository</button>
+    <button class="tab" role="tab" aria-selected="false" onclick="tab('runs')">Remediation loop</button>
+    <button class="tab" role="tab" aria-selected="false" onclick="tab('demo')">Recorded scenarios</button>
+  </div>
+
+  <section id="panel-live">
+    <form class="analyze" onsubmit="runAnalysis(event)">
+      <label>Repository path
+        <input id="repo" placeholder="/path/to/your/repo" required>
+      </label>
+      <label>Base
+        <input id="base" value="HEAD~1" required>
+      </label>
+      <label>Candidate
+        <input id="cand" value="HEAD" required>
+      </label>
+      <button id="go" type="submit">Analyze</button>
+    </form>
+    <div id="live"></div>
+  </section>
+
+  <section id="panel-runs" class="hide">
+    <form class="analyze" onsubmit="loadRuns(event, true)" style="grid-template-columns:1fr auto auto">
+      <label>Repository path
+        <input id="runrepo" placeholder="leave blank for every repository">
+      </label>
+      <button type="submit">Show runs</button>
+      <button type="button" onclick="document.getElementById('runrepo').value='';loadRuns(null,true)"
+              style="background:none;color:var(--ink);border-color:var(--line)">All</button>
+    </form>
+    <div id="runs"><p class="loading">Loading persisted runs…</p></div>
+  </section>
+
+  <section id="panel-demo" class="hide">
+    <div class="note" id="provenance">Loading scenarios…</div>
+    <div class="cases" id="cases"></div>
+    <div id="detail"><p class="loading">Running the recorded demo slice…</p></div>
+  </section>
+
+  <footer>
+    Served locally by <code>frontend/server.py</code>. No database or Docker required.
+  </footer>
+</div>
+
+<script>
+const state = { data: null, selected: 0 };
+const pct = (v) => v === null || v === undefined ? "—" : (v * 100).toFixed(0) + "%";
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function renderCases() {
+  document.getElementById("cases").innerHTML = state.data.cases.map((c, i) => `
+    <button class="case" aria-pressed="${i === state.selected}" onclick="select(${i})">
+      <b>${esc(c.title)}</b>
+      <span>${esc(c.blurb)}</span>
+      <span class="pill ${c.action === "open_pr" ? "ok" : "no"}">${esc(c.action)} · A${c.autonomy_level}</span>
+    </button>`).join("");
+}
+
+function renderDetail() {
+  const c = state.data.cases[state.selected];
+  const failed = c.gates.filter((g) => !g.passed);
+  document.getElementById("detail").innerHTML = `
+    <div class="verdict">
+      <h2>${esc(c.title)}</h2>
+      <p>${esc(c.summary)}</p>
+
+      <dl class="metrics">
+        <div class="metric"><dt>Action</dt><dd>${esc(c.action)}</dd></div>
+        <div class="metric"><dt>Autonomy</dt><dd>A${c.autonomy_level}</dd></div>
+        <div class="metric"><dt>Debt risk</dt><dd>${pct(c.debt_risk)}</dd></div>
+        <div class="metric"><dt>Confidence</dt><dd>${pct(c.confidence)}</dd></div>
+        <div class="metric"><dt>Attempts</dt><dd>${c.attempt_count}</dd></div>
+        <div class="metric"><dt>Outcome</dt><dd style="font-size:.95rem">${esc(c.termination_reason || "—")}</dd></div>
+      </dl>
+
+      ${c.reasons.length ? `<h3>Why</h3><ul class="reasons">${c.reasons.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>` : ""}
+
+      ${c.verification_results.length ? `<h3>Fix verification</h3><div class="wl">${c.verification_results.map((v) =>
+        `<span><strong>${esc(v.workload_id || "—")}</strong> · ${esc(v.status)}</span>`).join("")}</div>` : ""}
+
+      <h3>Gate ladder — ${c.gates.length - failed.length} of ${c.gates.length} passed</h3>
+      <div class="gates">
+        ${c.gates.map((g) => `
+          <div class="gate ${g.passed ? "" : "failed"}">
+            <span class="mark ${g.passed ? "ok" : "no"}">${g.passed ? "PASS" : "FAIL"}</span>
+            <div><code>${esc(g.code)}</code><p>${esc(g.reason)}</p></div>
+          </div>`).join("")}
+      </div>
+
+      ${c.attempt_outcomes.length ? `<details><summary>Attempt history (${c.attempt_outcomes.length})</summary>
+        <pre>${esc(JSON.stringify(c.attempt_outcomes, null, 2))}</pre></details>` : ""}
+    </div>`;
+}
+
+function select(i) { state.selected = i; renderCases(); renderDetail(); }
+
+const TABS = ["live", "runs", "demo"];
+function tab(which) {
+  document.querySelectorAll(".tab").forEach((t, i) =>
+    t.setAttribute("aria-selected", String(TABS[i] === which)));
+  TABS.forEach((name) =>
+    document.getElementById("panel-" + name).classList.toggle("hide", name !== which));
+  if (which === "runs") {
+    const box = document.getElementById("runrepo");
+    // Default to whatever repository the analyze tab is pointed at.
+    if (!box.dataset.touched) box.value = document.getElementById("repo").value.trim();
+    loadRuns();
+  }
+}
+
+const LOOP = ["context", "diagnose", "patch", "validate", "verify", "decide"];
+
+function renderRuns(data) {
+  const el = document.getElementById("runs");
+  if (data.error) {
+    el.innerHTML = `<div class="err">No run history: ${esc(data.error)}<br>
+      Start PostgreSQL and run <code>lou analyze</code>, then <code>lou remediate</code>.</div>`;
+    return;
+  }
+  if (!data.runs.length) {
+    const p = document.getElementById("runrepo").value.trim();
+    el.innerHTML = `<div class="omit"><strong>No recorded run${p ? " for this repository" : ""}.</strong>
+      <p>The analyze tab does not persist: it needs no database. A run appears here only after
+      the full pipeline executes workloads in the sandbox:</p>
+      <p><code>lou analyze --repo ${esc(p || "&lt;path&gt;")} --base &lt;a&gt; --candidate &lt;b&gt;</code>,
+      then <code>lou remediate --run &lt;id&gt;</code>.</p>
+      <p>That requires the repository to expose <code>store/</code>, <code>tests/</code> and
+      <code>loadtests/</code>, because the verification sandbox copies exactly those three
+      directories. Repositories shaped differently cannot be verified yet.</p></div>`;
+    return;
+  }
+  el.innerHTML = data.runs.map((r) => {
+    const d = r.decision, m = r.remediation;
+    const reached = new Set((m ? m.attempts : []).map((a) => a.stage));
+    const cand = r.verifications.find((v) => v.phase === "candidate");
+    const delta = cand && cand.metrics ? cand.metrics.query_count_delta : null;
+    return `<div class="verdict">
+      <h2>${esc(r.repository.name)} <span class="pill ${r.status === "succeeded" ? "ok" : "no"}">${esc(r.status)}</span></h2>
+      <p><code>${esc(r.base.slice(0, 10))}</code> → <code>${esc(r.candidate.slice(0, 10))}</code>
+         · ${esc(r.repository.path || "")} · run ${esc(r.id.slice(0, 8))}</p>
+
+      <h3>Verification</h3>
+      <div class="wl">${r.verifications.map((v) =>
+        `<span><strong>${esc(v.phase)}</strong> · <span class="${v.status === "passed" ? "mark ok" : "mark no"}">${esc(v.status)}</span></span>`).join("") || "<span>none</span>"}
+        ${delta != null ? `<span><strong>query_count_delta</strong> · ${esc(delta)}</span>` : ""}</div>
+
+      ${m ? `<h3>Remediation loop — ${esc(m.termination_reason || m.status)}</h3>
+        <ol class="steps">${LOOP.map((st) => {
+          const hits = m.attempts.filter((a) => a.stage === st);
+          const last = hits[hits.length - 1];
+          return `<li class="step ${last ? "ok" : ""}">
+            <span class="dot">${last ? "✓" : ""}</span>
+            <span class="lbl">${esc(st)}</span>
+            <span class="det">${last ? esc(last.outcome) : "not reached"}</span>
+            <span class="ms">${last && last.patch_sha256 ? esc(last.patch_sha256.slice(0, 8)) : ""}</span>
+          </li>`;
+        }).join("")}</ol>` : `<h3>Remediation loop</h3><div class="omit">Not run for this analysis.
+          <p>Run <code>lou remediate --run ${esc(r.id)}</code>.</p></div>`}
+
+      ${d ? `<h3 style="margin-top:18px">Decision</h3>
+        <dl class="metrics">
+          <div class="metric"><dt>Action</dt><dd>${esc(d.action)}</dd></div>
+          <div class="metric"><dt>Autonomy</dt><dd>A${d.autonomy_level}</dd></div>
+          <div class="metric"><dt>Debt risk</dt><dd>${pct(d.debt_risk)}</dd></div>
+          <div class="metric"><dt>Confidence</dt><dd>${pct(d.confidence)}</dd></div>
+        </dl>
+        ${d.gates.length ? `<details><summary>Gate ladder (${d.gates.filter((g) => !g.passed).length} of ${d.gates.length} failed)</summary>
+          <div class="gates" style="margin-top:10px">${d.gates.map((g) => `
+            <div class="gate ${g.passed ? "" : "failed"}">
+              <span class="mark ${g.passed ? "ok" : "no"}">${g.passed ? "PASS" : "FAIL"}</span>
+              <div><code>${esc(g.code)}</code><p>${esc(g.reason)}</p></div>
+            </div>`).join("")}</div></details>` : ""}` : ""}
+    </div>`;
+  }).join("");
+}
+
+let runsLoaded = false;
+function loadRuns(event, force) {
+  if (event) { event.preventDefault(); document.getElementById("runrepo").dataset.touched = "1"; }
+  if (runsLoaded && !force) return;
+  runsLoaded = true;
+  const path = document.getElementById("runrepo").value.trim();
+  document.getElementById("runs").innerHTML = `<p class="loading">Loading runs…</p>`;
+  fetch("/api/runs" + (path ? "?repository_path=" + encodeURIComponent(path) : ""))
+    .then((r) => r.json()).then(renderRuns)
+    .catch((e) => { runsLoaded = false;
+      document.getElementById("runs").innerHTML = `<div class="err">${esc(e.message)}</div>`; });
+}
+
+const list = (title, items, note) => `
+  <div class="list"><h4>${esc(title)} (${items.length})</h4>
+    ${items.length
+      ? `<ul>${items.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`
+      : `<p class="empty">${esc(note || "none")}</p>`}
+  </div>`;
+
+const NODE_COLORS = {
+  FUNCTION: "#4c78a8", CLASS: "#72b7b2", TEST: "#54a24b", ENDPOINT: "#e45756",
+  DATABASE_TABLE: "#b279a2", FILE: "#9c9c9c", LOAD_SCENARIO: "#f58518",
+};
+
+function renderGraph(kg) {
+  const host = document.getElementById("kg");
+  if (!host) return;
+  if (!kg || !kg.nodes.length) {
+    host.innerHTML = `<div class="kg-empty">No nodes were reached — the change touched nothing the graph could resolve.</div>`;
+    return;
+  }
+
+  // A leaf fan-out of fifty nodes in one lane is unreadable and metres tall, so each
+  // lane shows a bounded sample and says how many it left out.
+  const LANE_MAX = 12;
+  const all = [];
+  kg.nodes.forEach((n) => (all[n.distance] = (all[n.distance] || []).concat(n)));
+  const hidden = all.map((l) => Math.max(0, (l ? l.length : 0) - LANE_MAX));
+  const lanes = all.map((l) => (l ? l.slice(0, LANE_MAX) : l));
+  const COL = 230, ROW = 46, PAD = 34;
+  const height = PAD * 2 + Math.max(...lanes.map((l) => (l ? l.length : 0))) * ROW;
+  const width = PAD * 2 + lanes.length * COL;
+
+  const pos = {};
+  lanes.forEach((lane, d) => (lane || []).forEach((n, i) => {
+    const laneH = lane.length * ROW;
+    pos[n.id] = { x: PAD + d * COL + 8, y: PAD + (height - laneH) / 2 + i * ROW + ROW / 2 };
+  }));
+
+  const edges = kg.edges.map((e) => {
+    const a = pos[e.source], b = pos[e.target];
+    if (!a || !b) return "";
+    const mx = (a.x + b.x) / 2;
+    const hot = ["TESTED_BY", "SERVES_ENDPOINT", "READS_FROM", "WRITES_TO"].includes(e.type);
+    return `<path class="edge ${hot ? "hot" : ""}" d="M${a.x},${a.y} C${mx},${a.y} ${mx},${b.y} ${b.x},${b.y}">
+      <title>${esc(e.type)}</title></path>`;
+  }).join("");
+
+  const nodes = kg.nodes.map((n) => {
+    const p = pos[n.id];
+    const color = NODE_COLORS[n.type] || "#9c9c9c";
+    return `<g class="node ${n.changed ? "changed" : ""}" transform="translate(${p.x},${p.y})">
+      <circle r="${n.changed ? 7 : 5}" fill="${color}"><title>${esc(n.key)}${n.path ? "\n" + esc(n.path) : ""}</title></circle>
+      <text class="nodelabel" x="12" y="1">${esc(n.label)}</text>
+      <text class="nodesub" x="12" y="12">${esc(n.type.toLowerCase())}${n.changed ? " · changed" : ""}</text>
+    </g>`;
+  }).join("");
+
+  const laneLabels = lanes.map((lane, d) => lane
+    ? `<text class="lane" x="${PAD + d * COL + 8}" y="16">${d === 0 ? "changed" : "distance " + d}${
+        hidden[d] ? ` (+${hidden[d]} more)` : ""}</text>` : "").join("");
+
+  const used = [...new Set(kg.nodes.map((n) => n.type))];
+  host.innerHTML = `
+    <div class="kg-head">
+      <h3 style="margin:0">Knowledge graph — ${kg.nodes.length} nodes, ${kg.edges.length} edges</h3>
+      <div class="kg-legend">${used.map((t) =>
+        `<span><i style="background:${NODE_COLORS[t] || "#9c9c9c"}"></i>${esc(t.toLowerCase())}</span>`).join("")}</div>
+    </div>
+    <div class="kg-scroll">
+      <svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img"
+           aria-label="Impact subgraph: ${kg.nodes.length} nodes across ${lanes.length} distances">
+        ${laneLabels}${edges}${nodes}
+      </svg>
+    </div>`;
+}
+
+function renderLive(d) {
+  const g = d.graph, p = d.plan, r = d.repository;
+  const items = (d.prediction && d.prediction.items) || [];
+  const byKind = items.reduce((a, i) => ((a[i.kind] = (a[i.kind] || 0) + 1), a), {});
+
+  document.getElementById("result").innerHTML = `
+    <div class="verdict">
+      <h2>${esc(r.name)}</h2>
+      <p><code>${esc(r.base.slice(0, 10))}</code> → <code>${esc(r.candidate.slice(0, 10))}</code> · ${esc(r.path)}</p>
+
+      <dl class="metrics">
+        <div class="metric"><dt>Files changed</dt><dd>${d.change.added_files.length + d.change.modified_files.length + d.change.deleted_files.length}</dd></div>
+        <div class="metric"><dt>Changed symbols</dt><dd>${g.changed_symbols.length}</dd></div>
+        <div class="metric"><dt>Affected symbols</dt><dd>${g.affected_symbols.length}</dd></div>
+        <div class="metric"><dt>Predicted items</dt><dd>${items.length}</dd></div>
+        <div class="metric">
+          <dt>Graph completeness</dt><dd>${pct(g.completeness)}</dd>
+          <div class="bar"><i style="width:${(g.completeness * 100).toFixed(1)}%"></i></div>
+        </div>
+        <div class="metric"><dt>Plan</dt><dd style="font-size:.95rem">${esc(p.state || "—")}</dd></div>
+      </dl>
+
+      <h3>What the graph reached</h3>
+      <div class="lists" style="margin-bottom:18px">
+        ${list("Affected tests", g.affected_tests, "no test reached this change")}
+        ${list("Affected endpoints", g.affected_endpoints, "no served endpoint reached")}
+        ${list("Data dependencies", g.affected_data_dependencies, "no data dependency reached")}
+        ${list("Unresolved", g.unresolved_relationships, "everything resolved")}
+      </div>
+
+      <h3>Validation plan — registry <code>${esc(d.registry_revision || "none")}</code></h3>
+      ${p.selected.length
+        ? p.selected.map((s) => `<div class="sel"><code>${esc(s.workload_id)}</code> · ${esc(s.workload_type)}
+             <p>${esc(s.reason)}</p></div>`).join("")
+        : `<div class="omit"><strong>No workload selected.</strong>
+             <p>${esc(p.state === "incomplete_no_fallback"
+               ? "The graph is incomplete and this repository configured no eligible fallback, so nothing was planned."
+               : "No declared workload matched the graph evidence. Add .lou/workloads.json to declare one.")}</p></div>`}
+      ${p.omitted.length
+        ? `<details><summary>Omitted workloads (${p.omitted.length})</summary>${p.omitted.map((o) =>
+            `<div class="omit" style="margin-top:8px"><code>${esc(o.workload_id)}</code> · ${esc(o.category)}
+               <p>${esc(o.reason)}</p></div>`).join("")}</details>` : ""}
+
+      ${items.length ? `<h3 style="margin-top:18px">Impact prediction</h3>
+        <div class="wl">${Object.entries(byKind).map(([k, n]) =>
+          `<span><strong>${esc(k)}</strong> · ${n}</span>`).join("")}</div>` : ""}
+
+      <div class="caveat">
+        <h4>Not measured</h4>
+        <ul>${d.not_measured.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>
+      </div>
+    </div>`;
+}
+
+function renderStages(stages, done, total) {
+  document.getElementById("stages").innerHTML = `
+    <div class="progress"><i style="width:${total ? (done.length / total) * 100 : 0}%"></i></div>
+    <ol class="steps">
+      ${stages.map((s) => {
+        const hit = done.find((d) => d.id === s.id);
+        const active = !hit && done.length === stages.findIndex((x) => x.id === s.id);
+        return `<li class="step ${hit ? "ok" : active ? "run" : ""}">
+          <span class="dot">${hit ? "✓" : active ? "" : ""}</span>
+          <span class="lbl">${esc(s.label)}</span>
+          <span class="det">${hit ? esc(hit.detail) : active ? "running…" : ""}</span>
+          <span class="ms">${hit ? hit.ms + " ms" : ""}</span>
+        </li>`;
+      }).join("")}
+    </ol>`;
+}
+
+function runAnalysis(event) {
+  event.preventDefault();
+  const go = document.getElementById("go");
+  const out = document.getElementById("live");
+  const params = new URLSearchParams({
+    repository_path: document.getElementById("repo").value.trim(),
+    base: document.getElementById("base").value.trim(),
+    candidate: document.getElementById("cand").value.trim(),
+  });
+
+  go.disabled = true;
+  out.innerHTML = `<div id="stages" class="stages"></div><div id="kg" class="kg hide"></div><div id="result"></div>`;
+  let stages = [], done = [];
+
+  const src = new EventSource("/api/analyze?" + params);
+  const stop = () => { src.close(); go.disabled = false; };
+
+  src.addEventListener("stages", (e) => {
+    stages = JSON.parse(e.data).stages;
+    renderStages(stages, done, stages.length);
+  });
+  src.addEventListener("stage", (e) => {
+    done.push(JSON.parse(e.data));
+    renderStages(stages, done, stages.length);
+  });
+  src.addEventListener("graph", (e) => {
+    const host = document.getElementById("kg");
+    host.classList.remove("hide");
+    renderGraph(JSON.parse(e.data));
+  });
+  src.addEventListener("result", (e) => {
+    renderLive(JSON.parse(e.data));
+    stop();
+  });
+  src.addEventListener("error", (e) => {
+    // A payload means the server reported a real failure; no payload means the
+    // stream itself dropped, which EventSource would otherwise retry forever.
+    const msg = e.data ? (JSON.parse(e.data).error || "Analysis failed.") : null;
+    if (msg) document.getElementById("result").innerHTML = `<div class="err">${esc(msg)}</div>`;
+    else if (!done.length) out.innerHTML = `<div class="err">Lost connection to the demo server.</div>`;
+    stop();
+  });
+}
+
+fetch("/api/demo").then((r) => r.json()).then((data) => {
+  state.data = data;
+  document.getElementById("ver").textContent = "Lou " + data.version;
+  const gaps = data.transcript.filter((l) => l.startsWith("STAGES:") || l.startsWith("GAPS:"));
+  document.getElementById("provenance").innerHTML = gaps.length
+    ? gaps.map((l) => esc(l)).join("<br><br>")
+    : "Recorded demo slice.";
+  renderCases();
+  renderDetail();
+}).catch((e) => {
+  document.getElementById("detail").innerHTML =
+    `<p class="loading">Could not load the demo: ${esc(e.message)}</p>`;
+});
+</script>
+</body>
+</html>

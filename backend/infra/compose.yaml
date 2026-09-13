@@ -1,4 +1,28 @@
 services:
+  demo:
+    build:
+      context: ../..
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "${LOU_DEMO_PORT:-8100}:8100"
+    environment:
+      # Read-only view of persisted runs. The analyze and scenario tabs work
+      # without this; only the run history needs it.
+      LOU_DATABASE_URL: postgresql+psycopg://lou:${LOU_POSTGRES_RUNTIME_PASSWORD:-lou}@postgres:5432/lou
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      # Repositories are mounted at their own host path so a path typed into the
+      # page resolves to the same place inside the container. Read-only: the
+      # analysis stages this serves only read.
+      - "${LOU_DEMO_REPOS:-${HOME}/Projects}:${LOU_DEMO_REPOS:-${HOME}/Projects}:ro"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://127.0.0.1:8100/')\""]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
   staging-demo:
     image: nginx:1.27-alpine
     profiles: ["staging"]
