@@ -8,6 +8,9 @@ The first contract set covers repository change/context, workload selection,
 findings and evidence, verification results, agent output, patch metadata, and
 the final Lou decision. It intentionally has no database or FastAPI dependency.
 
+See the [field-level contract reference](REFERENCE.md) for required fields,
+allowed values, ownership, and examples.
+
 ## Fixtures
 
 The JSON files in `fixtures/` are the hand-off examples for parallel work.
