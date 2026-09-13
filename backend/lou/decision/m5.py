@@ -145,3 +145,39 @@ def decide_m5(
             "metadata": metadata,
         }
     )
+
+
+def publication_denial_reasons(
+    decision: LouDecision, *, analysis_run_id: str, policy_revision: str
+) -> tuple[str, ...]:
+    """Recheck the persisted M5 authorization at the trusted PR boundary."""
+    try:
+        record = AutonomyDecision.model_validate(decision.metadata["m5"])
+    except (KeyError, TypeError, ValueError):
+        return ("m5_decision_missing_or_invalid",)
+    reasons: list[str] = []
+    if (
+        decision.analysis_run_id != analysis_run_id
+        or record.analysis_run_id != analysis_run_id
+        or record.decision_id != decision.decision_id
+    ):
+        reasons.append("decision_identity_mismatch")
+    if (
+        record.requested_policy_revision != policy_revision
+        or record.evaluated_policy_revision != policy_revision
+    ):
+        reasons.append("policy_revision_mismatch")
+    if (
+        decision.autonomy_level != 3
+        or decision.action != "open_pr"
+        or record.permitted_level != 3
+        or record.action != "open_pr"
+    ):
+        reasons.append("a3_not_permitted")
+    if record.remediation is None or record.remediation.hard_risk_flags:
+        reasons.append("remediation_hard_risk")
+    if record.expected_value.status != "estimated" or (
+        record.expected_value.lower_hours is None or record.expected_value.lower_hours <= 0
+    ):
+        reasons.append("expected_value_unproven")
+    return tuple(reasons)

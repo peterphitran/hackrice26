@@ -55,7 +55,9 @@ still uses the v1 decision because no patch exists to assess at that boundary.
 The first fixture adapter accepts optional `risk_signals` and `cost_estimates`
 objects in request configuration and persists the resulting M5 record. Its
 report prints expected value, policy revisions, ceilings, and limiting reasons.
-Incident, ownership, and cost producers are not yet present in the fixture
-pipeline; those inputs remain explicitly unknown until supplied by a trusted
-producer. The trusted GitHub publisher is also not implemented in this repo, so
-the decision does not itself open or publish a PR.
+The trusted PR publisher revalidates the persisted M5 record, policy revision,
+patch bytes, validation, and independent fix verdicts before any publication.
+Legacy v1 decisions cannot publish through this boundary. Incident, ownership,
+and cost producers are not yet present in the fixture pipeline; those inputs
+remain explicitly unknown until supplied by a trusted producer. The current
+fixture therefore stops below A3 by default.

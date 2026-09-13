@@ -25,8 +25,8 @@ from lou.application.analysis import AnalysisApplicationService, AnalysisRequest
 from lou.core.settings import Settings
 from lou.decision import decide_m5
 from lou.policies import AutonomyPolicy
-from lou.prediction import predict_impact
 from lou.policies.engine import LocalPolicy
+from lou.prediction import predict_impact
 from lou.repository import (
     REGISTRY_REVISION,
     TraversalLimits,
