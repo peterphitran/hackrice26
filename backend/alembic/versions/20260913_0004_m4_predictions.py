@@ -1,9 +1,13 @@
-"""Persist immutable M4 impact predictions."""
+"""Persist immutable M4 impact predictions.
+
+Revision ID: 20260913_0004
+Revises: 20260913_0003
+"""
 
 from alembic import op
 
-revision = "20260913_0003"
-down_revision = "20260913_0002"
+revision = "20260913_0004"
+down_revision = "20260913_0003"
 branch_labels = None
 depends_on = None
 

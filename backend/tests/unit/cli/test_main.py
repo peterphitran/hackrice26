@@ -86,3 +86,11 @@ def test_ci_exit_codes_follow_candidate_measurement() -> None:
         == 2
     )
     assert cli._exit_code(AnalysisResult("run-cli", "failed", False, ()), True) == 3
+
+
+def test_a_run_without_a_verdict_never_exits_zero() -> None:
+    stranded = AnalysisResult("run-cli", "running", True, ("validate", "initialize"))
+
+    assert cli._exit_code(stranded, True) == 3
+    assert cli._exit_code(stranded, False) == 3
+    assert cli._exit_code(AnalysisResult("run-cli", "cancelled", True, ()), False) == 3

@@ -43,9 +43,7 @@ class _TwoStepDriver:
         self.calls += 1
         if previous.stage == "context":
             return previous.model_copy(update={"stage": "diagnose", "attempt_count": 1})
-        return previous.model_copy(
-            update={"stage": "stopped", "termination_reason": "verified"}
-        )
+        return previous.model_copy(update={"stage": "stopped", "termination_reason": "verified"})
 
 
 def _run_input(analysis_run_id: Any, *, deduplication_key: str) -> RemediationRunInput:

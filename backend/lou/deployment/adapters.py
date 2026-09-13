@@ -5,8 +5,160 @@ from __future__ import annotations
 import subprocess
 from dataclasses import dataclass, field
 
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.orm import Session, sessionmaker
+
 from contracts import Release
-from lou.deployment.ports import DeploymentPort
+from lou.deployment.ports import (
+    DeploymentPort,
+    TraceFact,
+    TraceLookupPort,
+    VerificationFact,
+    VerificationLookupPort,
+)
+from lou.deployment.service import ChainedJournal, DeploymentConflictError
+from lou.persistence.models import (
+    AnalysisRunRecord,
+    DeploymentJournalRecord,
+    EvidenceRecord,
+    VerificationRunRecord,
+)
+
+RUNTIME_OBSERVATION_KIND = "runtime-observation"
+
+
+@dataclass
+class InMemoryVerificationLookup(VerificationLookupPort):
+    """Deterministic verification lookup for tests and local rehearsal."""
+
+    facts: dict[str, VerificationFact] = field(default_factory=dict)
+
+    def record(self, fact: VerificationFact) -> None:
+        self.facts[fact.verification_run_id] = fact
+
+    def get(self, verification_run_id: str) -> VerificationFact | None:
+        return self.facts.get(verification_run_id)
+
+
+@dataclass(frozen=True)
+class SqlAlchemyVerificationLookup(VerificationLookupPort):
+    """Read verification runs from the durable store by contract ID."""
+
+    session_factory: sessionmaker[Session]
+
+    def get(self, verification_run_id: str) -> VerificationFact | None:
+        try:
+            with self.session_factory() as session:
+                record = session.execute(
+                    select(VerificationRunRecord).where(
+                        VerificationRunRecord.contract_id == verification_run_id
+                    )
+                ).scalar_one_or_none()
+        except SQLAlchemyError:
+            # An unreadable store cannot confirm health, so the canary pauses.
+            return None
+        if record is None:
+            return None
+        return VerificationFact(
+            verification_run_id=verification_run_id,
+            analysis_run_id=str(record.analysis_run_id),
+            commit_sha=record.commit_sha,
+            status=record.status,
+        )
+
+
+@dataclass
+class InMemoryTraceLookup(TraceLookupPort):
+    """Deterministic trace lookup for tests and local rehearsal."""
+
+    facts: dict[str, TraceFact] = field(default_factory=dict)
+
+    def record(self, fact: TraceFact) -> None:
+        self.facts[fact.trace_id] = fact
+
+    def get(self, trace_id: str) -> TraceFact | None:
+        return self.facts.get(trace_id)
+
+
+@dataclass(frozen=True)
+class SqlAlchemyTraceLookup(TraceLookupPort):
+    """Resolve a trace to the analysis run whose telemetry actually recorded it."""
+
+    session_factory: sessionmaker[Session]
+
+    def get(self, trace_id: str) -> TraceFact | None:
+        statement = (
+            select(
+                AnalysisRunRecord.id,
+                AnalysisRunRecord.candidate_commit_sha,
+                func.count(EvidenceRecord.id),
+            )
+            .join(EvidenceRecord, EvidenceRecord.analysis_run_id == AnalysisRunRecord.id)
+            .where(
+                EvidenceRecord.kind == RUNTIME_OBSERVATION_KIND,
+                EvidenceRecord.summary["trace_id"].astext == trace_id,
+            )
+            .group_by(AnalysisRunRecord.id, AnalysisRunRecord.candidate_commit_sha)
+        )
+        try:
+            with self.session_factory() as session:
+                rows = session.execute(statement).all()
+        except SQLAlchemyError:
+            # An unreadable store cannot confirm a trace, so the canary pauses.
+            return None
+        if len(rows) != 1:
+            # No recorded trace, or one claimed by several runs: neither is confirmable.
+            return None
+        analysis_run_id, commit_sha, observation_count = rows[0]
+        return TraceFact(
+            trace_id=trace_id,
+            analysis_run_id=str(analysis_run_id),
+            commit_sha=commit_sha,
+            observation_count=int(observation_count),
+        )
+
+
+class SqlAlchemyDeploymentJournal(ChainedJournal):
+    """The durable deployment journal: hash-chained, append-only PostgreSQL rows."""
+
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self._session_factory = session_factory
+
+    def _read(self, release_id: str) -> list[dict[str, object]]:
+        statement = (
+            select(
+                DeploymentJournalRecord.body,
+                DeploymentJournalRecord.previous_hash,
+                DeploymentJournalRecord.record_hash,
+            )
+            .where(DeploymentJournalRecord.release_id == release_id)
+            .order_by(DeploymentJournalRecord.sequence)
+        )
+        with self._session_factory() as session:
+            rows = session.execute(statement).all()
+        return [
+            {**body, "previous_hash": previous_hash, "record_hash": record_hash}
+            for body, previous_hash, record_hash in rows
+        ]
+
+    def _write(self, release_id: str, sequence: int, record: dict[str, object]) -> None:
+        body = self.body_of(record)
+        try:
+            with self._session_factory.begin() as session:
+                session.add(
+                    DeploymentJournalRecord(
+                        release_id=release_id,
+                        sequence=sequence,
+                        kind=str(body["kind"]),
+                        body=body,
+                        previous_hash=str(record["previous_hash"]),
+                        record_hash=str(record["record_hash"]),
+                    )
+                )
+        except IntegrityError as error:
+            # Another writer already claimed this position in the chain.
+            raise DeploymentConflictError("deployment journal was appended concurrently") from error
 
 
 @dataclass

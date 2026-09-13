@@ -31,6 +31,11 @@ from lou.persistence.models import (
 from lou.persistence.repositories import SqlAlchemyRemediationRunRepository
 from lou.policies import AutonomyPolicy
 from lou.scoring import DebtInputs, RemediationInputs
+from lou.scoring.observed import (
+    graph_debt_features,
+    graph_remediation_features,
+    measured_runtime_impact,
+)
 from lou.verification import DockerWorkloadRunner, disposable_worktree
 from lou.verification.int003 import RecordedPatchProvider, _patches
 
@@ -265,27 +270,18 @@ def _assemble(
             candidate_verification=candidate_result,
             workloads=selections,
             expected_patch=expected,
-            debt_inputs=DebtInputs(
-                complexity=0.8,
-                coverage_deficit=0.4,
-                estimated_patch_size=0.2,
-                churn=0.6,
-                graph_centrality=0.7,
-                runtime_impact=0.9,
-                path_criticality=1.0,
-                evidence_confidence=float(finding.confidence or 0),
+            debt_inputs=DebtInputs.model_validate(
+                {
+                    **graph_debt_features(context),
+                    **measured_runtime_impact(public_finding),
+                    "evidence_confidence": float(finding.confidence or 0),
+                }
             ),
-            remediation_inputs=RemediationInputs(
-                blast_radius=0.1,
-                criticality=0.1,
-                coverage=0.9,
-                reversibility=1.0,
-                verification_strength=1.0,
-                patch_size=0.1,
-                schema_migration_risk=0.0,
-                data_migration_risk=0.0,
-                context_completeness=context.completeness,
-                evidence_confidence=float(finding.confidence or 0),
+            remediation_inputs=RemediationInputs.model_validate(
+                {
+                    **graph_remediation_features(context),
+                    "evidence_confidence": float(finding.confidence or 0),
+                }
             ),
             policy=AutonomyPolicy(revision=run.policy_revision, max_autonomy=2),
             allowed_repository_root=path.resolve(),

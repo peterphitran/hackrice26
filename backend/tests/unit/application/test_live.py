@@ -18,7 +18,31 @@ from lou.application.live import (
 )
 from lou.execution import CommandOutput, CommandResult
 from lou.loadtest import K6Experiment, K6Sample
+from lou.repository import fixture_workload_registry
 from lou.verification import PhaseCheck, PhaseObservations
+
+FIXTURE_MANIFEST = (
+    Path(__file__).resolve().parents[3]
+    / "fixtures"
+    / "broken-store"
+    / "template"
+    / ".lou"
+    / "workloads.json"
+)
+
+
+def write_workload_manifest(repository: Path) -> None:
+    """Give the repository the same workload manifest the shipped fixture declares.
+
+    Copying rather than restating it keeps this fixture honest: if the manifest the
+    demo relies on stops loading, these tests stop passing too.
+    """
+
+    target = repository / ".lou"
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "workloads.json").write_text(
+        FIXTURE_MANIFEST.read_text(encoding="utf-8"), encoding="utf-8"
+    )
 
 
 @pytest.fixture
@@ -59,6 +83,7 @@ def test_receipt():
         'import http from "k6/http";\nhttp.post(`${__ENV.BASE_URL}/checkout`);\n',
         encoding="utf-8",
     )
+    write_workload_manifest(repository)
     subprocess.run(["git", "-C", str(repository), "add", "."], check=True)
     subprocess.run(["git", "-C", str(repository), "commit", "-qm", "good"], check=True)
     base = _git(repository, "rev-parse", "HEAD")
@@ -211,6 +236,7 @@ def test_fixture_adapter_supports_single_type_finalized_plans(
             "checkout-k6": "graph load path",
         },
         completeness=1,
+        metadata={"repository_path": str(repository)},
     )
     all_workloads = FixtureWorkloadSelector().select(context)
     workloads = tuple(item for item in all_workloads if item.workload_type == selected_type)
@@ -248,6 +274,7 @@ def test_candidate_rejects_a_different_plan_than_baseline(
             "checkout-k6": "graph load path",
         },
         completeness=1,
+        metadata={"repository_path": str(repository)},
     )
     workloads = FixtureWorkloadSelector().select(context)
     verifier = FixtureVerificationAdapter(_AdaptiveRunner(), tmp_path / "same-plan")
@@ -283,12 +310,12 @@ def test_selector_allows_only_known_configured_fallback_workloads() -> None:
         metadata={"fallback_workload_ids": ["checkout-pytest"]},
     )
 
-    assert [item.workload_id for item in FixtureWorkloadSelector().select(context)] == [
-        "checkout-pytest"
-    ]
+    selector = FixtureWorkloadSelector(registry=fixture_workload_registry())
+
+    assert [item.workload_id for item in selector.select(context)] == ["checkout-pytest"]
 
     unknown = context.model_copy(update={"selected_workload_ids": ["unknown"]})
-    plan = FixtureWorkloadSelector().plan(unknown)
+    plan = selector.plan(unknown)
     assert [item.workload_id for item in plan.selected] == ["checkout-pytest"]
     unknown_omitted = any(
         item.workload_id == "unknown" and item.category == "unregistered" for item in plan.omitted

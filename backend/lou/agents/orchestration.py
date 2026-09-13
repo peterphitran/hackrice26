@@ -26,6 +26,7 @@ from lou.agents.provider import AgentAdapter, AgentProvider, ProviderRequest, Pr
 from lou.decision import decide_autonomy
 from lou.policies import AutonomyPolicy
 from lou.scoring import DebtInputs, RemediationInputs
+from lou.scoring.observed import patch_remediation_features, verification_strength
 
 
 def _candidate_source(job: AnalysisJob, finding: Finding) -> tuple[RepositoryText, ...]:
@@ -267,6 +268,23 @@ class RemediationOrchestrator:
     def _attempt_id(self, state: OrchestrationState) -> str:
         return f"{state.analysis_run_id}:attempt:{state.attempt_count}"
 
+    def _measured_remediation_inputs(
+        self, patch: PatchArtifact | None, results: Sequence[VerificationResult]
+    ) -> RemediationInputs:
+        """Fill in the features that only an existing patch and its verdicts measure.
+
+        The assembled inputs describe the change site before any patch exists, so patch
+        size and verification strength are unknown there. They become observable once a
+        patch is proposed and the trusted plan reports on it, and an attempt that has
+        neither keeps them unknown rather than assuming a safe value.
+        """
+
+        measured: dict[str, float] = {}
+        if patch is not None:
+            measured.update(patch_remediation_features(patch))
+        measured.update(verification_strength(tuple(results), self.inputs.required_workload_ids()))
+        return self.inputs.remediation_inputs.model_copy(update=measured)
+
     def _decision(
         self,
         state: OrchestrationState,
@@ -289,7 +307,7 @@ class RemediationOrchestrator:
             + (":final" if final else ":attempt"),
             analysis_run_id=state.analysis_run_id,
             debt_inputs=self.inputs.debt_inputs,
-            remediation_inputs=self.inputs.remediation_inputs,
+            remediation_inputs=self._measured_remediation_inputs(patch, results),
             policy=self.inputs.policy,
             patch=patch,
             patch_content=patch_content,

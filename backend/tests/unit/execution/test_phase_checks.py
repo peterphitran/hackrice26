@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 import pytest
 
@@ -7,7 +8,10 @@ from lou.execution import CommandOutput, CommandResult
 from lou.verification import run_phase_checks
 
 
-def _selection(workload_id: str, workload_type: str = "pytest") -> WorkloadSelection:
+def _selection(
+    workload_id: str,
+    workload_type: Literal["pytest", "k6", "semgrep", "custom"] = "pytest",
+) -> WorkloadSelection:
     return WorkloadSelection(
         workload_id=workload_id,
         workload_type=workload_type,

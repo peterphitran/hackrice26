@@ -789,8 +789,7 @@ def test_existing_artifact_size_is_checked_before_reading(
     target = tmp_path / "graph.json"
     target.write_bytes(b"unexpected-large")
     monkeypatch.setattr(
-        graph_module.os,
-        "read",
+        "lou.repository.graph.os.read",
         lambda *_args, **_kwargs: pytest.fail("size mismatch must not read content"),
     )
     assert graph_module._existing_artifact_matches(target, b"small") is False

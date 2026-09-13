@@ -1,14 +1,17 @@
 from types import SimpleNamespace
+from typing import cast
 
 from contracts import VerificationResult
+from lou.agents.orchestration import ValidatedPatch
+from lou.application.analysis import VerificationBundle
 from lou.application.remediation import PersistedFixVerifier
 
 
 class Store:
     def __init__(self) -> None:
-        self.bundles: list[object] = []
+        self.bundles: list[VerificationBundle] = []
 
-    def record_verification(self, run_id: str, bundle: object) -> None:
+    def record_verification(self, run_id: str, bundle: VerificationBundle) -> None:
         assert run_id == "run-1"
         self.bundles.append(bundle)
 
@@ -34,13 +37,16 @@ def test_persisted_fix_verifier_records_one_immutable_fix_evidence_bundle() -> N
     store = Store()
     verifier = Verifier()
     service = PersistedFixVerifier(verifier=verifier, store=store)  # type: ignore[arg-type]
-    patch = SimpleNamespace(
-        analysis_job=SimpleNamespace(analysis_run_id="run-1"),
-        patch_artifact=SimpleNamespace(patch_sha256="a" * 64),
+    patch = cast(
+        ValidatedPatch,
+        SimpleNamespace(
+            analysis_job=SimpleNamespace(analysis_run_id="run-1"),
+            patch_artifact=SimpleNamespace(patch_sha256="a" * 64),
+        ),
     )
 
-    first = service.verify(patch)  # type: ignore[arg-type]
-    second = service.verify(patch)  # type: ignore[arg-type]
+    first = service.verify(patch)
+    second = service.verify(patch)
 
     assert first.status == second.status == "passed"
     assert verifier.calls == 2

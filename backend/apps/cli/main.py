@@ -29,9 +29,11 @@ from lou.core.settings import get_settings
 from lou.core.version import APP_VERSION
 from lou.deployment import (
     DeploymentConflictError,
-    DeploymentJournal,
     DeploymentService,
     InMemoryDeploymentAdapter,
+    SqlAlchemyDeploymentJournal,
+    SqlAlchemyTraceLookup,
+    SqlAlchemyVerificationLookup,
 )
 from lou.persistence.database import create_session_factory
 from lou.persistence.repositories import SqlAlchemyRemediationRunRepository
@@ -264,6 +266,12 @@ def deploy(
     latency_ms: float = typer.Option(100.0, "--latency-ms", min=0.1),
     samples: int = typer.Option(20, "--samples", min=0),
     complete: bool = typer.Option(True, "--complete/--observing"),
+    verification_run: list[str] = typer.Option(
+        [], "--verification-run", help="Verification run ID backing the validation result."
+    ),
+    trace_id: list[str] = typer.Option(
+        [], "--trace-id", help="Recorded trace ID backing the telemetry measurement."
+    ),
     output: str = typer.Option("text", "--output", help="text or json"),
 ) -> None:
     """Run a bounded staging canary using local, credential-free composition."""
@@ -312,6 +320,8 @@ def deploy(
                 minimum_samples=5,
                 telemetry_max_age_seconds=60,
             ),
+            verification_run_ids=tuple(verification_run),
+            trace_ids=tuple(trace_id),
         )
     except (DeploymentConflictError, ValueError):
         _input_error("deployment inputs are invalid or conflict with an existing release")
@@ -381,7 +391,13 @@ def _build_service() -> Any:
 
 def _deployment_service() -> DeploymentService:
     settings = get_settings()
-    return DeploymentService(DeploymentJournal(settings.artifact_root), InMemoryDeploymentAdapter())
+    sessions = create_session_factory(settings)
+    return DeploymentService(
+        SqlAlchemyDeploymentJournal(sessions),
+        InMemoryDeploymentAdapter(),
+        verifications=SqlAlchemyVerificationLookup(sessions),
+        traces=SqlAlchemyTraceLookup(sessions),
+    )
 
 
 def _read_configuration(config: Path | None) -> dict[str, object]:
@@ -484,6 +500,9 @@ def _deployment_summary(result: object) -> dict[str, object]:
 
 def _exit_code(result: AnalysisResult, ci: bool) -> int:
     if result.status == "failed":
+        return 3
+    if result.status in {"running", "cancelled"}:
+        # No verdict was produced for this invocation, so success must never be reported.
         return 3
     if not ci:
         return 0

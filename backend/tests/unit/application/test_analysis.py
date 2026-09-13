@@ -19,6 +19,7 @@ from lou.application.analysis import (
     AnalysisStatus,
     RunSnapshot,
     VerificationBundle,
+    _observed_from_execution,
 )
 from lou.telemetry import InMemoryTelemetry, RuntimeObservation
 
@@ -134,6 +135,7 @@ class Decision:
         run_id: str,
         baseline: VerificationBundle,
         candidate: VerificationBundle,
+        context: RepositoryContext,
     ) -> LouDecision:
         self.calls.append("decide")
         return LouDecision(
@@ -277,9 +279,7 @@ def test_service_returns_existing_run_without_repeating_work(tmp_path: Path) -> 
 
 
 @pytest.mark.parametrize("status", ["failed", "inconclusive", "running"])
-def test_reused_run_preserves_actual_status(
-    tmp_path: Path, status: str
-) -> None:
+def test_reused_run_preserves_actual_status(tmp_path: Path, status: str) -> None:
     calls: list[str] = []
     store = Store(reused=True, reused_status=status)
 
@@ -364,3 +364,127 @@ def test_force_run_requires_a_visible_token(tmp_path: Path) -> None:
         _service(calls, store).run(request)
 
     assert store.calls == []
+
+
+def test_observed_impact_comes_from_execution_not_the_repository_graph() -> None:
+    candidate = VerificationBundle(
+        VerificationResult(
+            verification_run_id="verify-candidate",
+            analysis_run_id="run-1",
+            phase="candidate",
+            commit_sha="b" * 40,
+            status="failed",
+            workload_id="checkout-k6",
+            metadata={
+                "classification": "runtime_regression",
+                "failure_classification": {
+                    "candidate_only": ["checkout-pytest"],
+                    "baseline_only": ["flaky-pytest"],
+                    "shared": [],
+                },
+            },
+        )
+    )
+
+    observed = _observed_from_execution("run-1", candidate)
+
+    assert [(item.kind, item.key) for item in observed.items] == [
+        ("runtime_path", "candidate:runtime_regression"),
+        ("workload", "checkout-k6"),
+        ("workload", "checkout-pytest"),
+    ]
+    assert observed.source_revisions == ("differential-verification",)
+
+
+def test_a_clean_candidate_observes_no_impact() -> None:
+    candidate = VerificationBundle(
+        VerificationResult(
+            verification_run_id="verify-candidate",
+            analysis_run_id="run-1",
+            phase="candidate",
+            commit_sha="b" * 40,
+            status="passed",
+            workload_id="checkout-k6",
+            metadata={
+                "classification": "clean",
+                "failure_classification": {
+                    "candidate_only": [],
+                    "baseline_only": [],
+                    "shared": [],
+                },
+            },
+        )
+    )
+
+    assert _observed_from_execution("run-1", candidate).items == ()
+
+
+def _context_with(correlations: dict[str, object]) -> RepositoryContext:
+    return RepositoryContext(
+        repository_id="repo-1",
+        commit_sha="b" * 40,
+        changed_symbols=["checkout"],
+        metadata={"runtime_correlations": correlations},
+    )
+
+
+def test_runtime_name_the_graph_never_resolved_stays_unresolved() -> None:
+    correlation = AnalysisApplicationService._correlation(
+        _context_with({}), "broken_store.products"
+    )
+
+    assert correlation.status == "unresolved"
+    assert correlation.confidence == 0.0
+    assert correlation.symbol_key is None
+
+
+def test_a_changed_symbol_alone_does_not_manufacture_a_correlation() -> None:
+    context = RepositoryContext(
+        repository_id="repo-1", commit_sha="b" * 40, changed_symbols=["checkout"]
+    )
+
+    assert AnalysisApplicationService._correlation(context, "checkout").status == "unresolved"
+
+
+def test_recorded_graph_correlation_is_reported_verbatim() -> None:
+    context = _context_with(
+        {
+            "broken_store.products": {
+                "runtime_name": "broken_store.products",
+                "status": "resolved",
+                "method": "normalized",
+                "symbol_key": "broken_store.products",
+                "graph_node_id": "DATABASE_TABLE:broken_store.products",
+                "confidence": 0.8,
+                "candidates": [],
+            }
+        }
+    )
+
+    correlation = AnalysisApplicationService._correlation(context, "broken_store.products")
+
+    assert correlation.status == "resolved"
+    assert correlation.method == "normalized"
+    assert correlation.confidence == 0.8
+    assert correlation.graph_node_id == "DATABASE_TABLE:broken_store.products"
+
+
+def test_an_ambiguous_graph_match_is_never_upgraded_to_resolved() -> None:
+    context = _context_with(
+        {
+            "checkout": {
+                "status": "ambiguous",
+                "method": "ambiguous",
+                "symbol_key": None,
+                "graph_node_id": None,
+                "confidence": 0.0,
+                "candidates": ["a.checkout", "b.checkout"],
+            }
+        }
+    )
+
+    correlation = AnalysisApplicationService._correlation(context, "checkout")
+
+    assert correlation.status == "ambiguous"
+    assert correlation.candidates == ("a.checkout", "b.checkout")
+    assert correlation.confidence == 0.0

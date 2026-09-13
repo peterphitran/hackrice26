@@ -74,9 +74,7 @@ def _container_result(
 def _remove_app(name: str, artifact_dir: Path) -> None:
     """Retain application logs before removing an ephemeral runtime container."""
 
-    run_command(
-        ["docker", "logs", name], artifact_dir=artifact_dir / "logs", timeout_seconds=30
-    )
+    run_command(["docker", "logs", name], artifact_dir=artifact_dir / "logs", timeout_seconds=30)
     run_command(
         ["docker", "rm", "--force", name],
         artifact_dir=artifact_dir / "cleanup",

@@ -28,9 +28,10 @@ from lou.repository import (
     PlanningLimits,
     TraversalLimits,
     ValidationPlan,
+    WorkloadRegistry,
     build_repository_context,
     build_repository_graph,
-    fixture_workload_registry,
+    load_workload_registry,
     parse_repository_changes,
     plan_validation_workloads,
     traverse_repository_impact,
@@ -39,7 +40,9 @@ from lou.repository import fixture_commands as fixture_commands
 from lou.repository import fixture_workloads as fixture_workloads
 from lou.repository.symbols import extract_changed_symbols
 from lou.scoring import DebtInputs, RemediationInputs
+from lou.scoring.observed import graph_debt_features
 from lou.telemetry import build_telemetry
+from lou.telemetry.correlation import correlation_summary
 from lou.verification import PhaseObservations, compare_candidate, disposable_worktree
 
 _REGISTRY_REVISION = REGISTRY_REVISION
@@ -94,9 +97,10 @@ class FixtureRepositoryIntelligence:
             commit_sha=change.candidate_commit_sha,
         )
         fallback_workload_ids = self.fallback_workload_ids if snapshot.completeness < 1 else ()
+        registry = load_workload_registry(request.repository_path)
         plan = plan_validation_workloads(
             context,
-            fixture_workload_registry(),
+            registry,
             limits=self.planning_limits,
             fallback_workload_ids=fallback_workload_ids,
         )
@@ -117,12 +121,19 @@ class FixtureRepositoryIntelligence:
                 },
                 "metadata": {
                     **context.metadata,
-                    "registry_revision": _REGISTRY_REVISION,
+                    "registry_revision": registry.revision,
+                    "repository_path": str(request.repository_path),
                     "analysis_run_id": run_id,
                     "graph_artifact_uri": snapshot.artifact_uri,
                     "fallback_workload_ids": list(fallback_workload_ids),
                     "impact_prediction": prediction.model_dump(mode="json"),
                     "validation_plan": plan.payload(),
+                    "runtime_correlations": {
+                        name: correlation_summary(name, snapshot)
+                        for name in sorted(
+                            {*context.changed_symbols, *context.affected_data_dependencies}
+                        )
+                    },
                 },
             }
         )
@@ -131,9 +142,10 @@ class FixtureRepositoryIntelligence:
 
 @dataclass(frozen=True)
 class FixtureWorkloadSelector:
-    """Return only registry workloads selected by the fixture context."""
+    """Plan validation from the workloads the analyzed repository declares."""
 
     planning_limits: PlanningLimits = PlanningLimits()
+    registry: WorkloadRegistry | None = None
 
     def plan(self, context: RepositoryContext) -> ValidationPlan:
         """Return the full explainable plan while keeping ``select`` compatible."""
@@ -145,13 +157,22 @@ class FixtureWorkloadSelector:
             raise ValueError("repository context fallback_workload_ids must be a list of strings")
         return plan_validation_workloads(
             context,
-            fixture_workload_registry(),
+            self.registry or load_workload_registry(_repository_path(context)),
             limits=self.planning_limits,
             fallback_workload_ids=tuple(raw_fallback_ids),
         )
 
     def select(self, context: RepositoryContext) -> tuple[WorkloadSelection, ...]:
         return self.plan(context).selected
+
+
+def _repository_path(context: RepositoryContext) -> Path:
+    """Return the repository whose declared workloads this context was planned against."""
+
+    recorded = context.metadata.get("repository_path")
+    if not isinstance(recorded, str) or not recorded:
+        raise ValueError("repository context does not record the repository it was built from")
+    return Path(recorded)
 
 
 @dataclass
@@ -243,7 +264,7 @@ class FixtureVerificationAdapter:
                 repository=workspace,
                 commit_sha=commit_sha,
                 selections=workloads,
-                commands=fixture_commands(),
+                commands=load_workload_registry(request.repository_path).command_map(),
                 job=job,
                 artifact_dir=self._phase_dir(job.analysis_run_id, phase),
             )
@@ -275,7 +296,7 @@ class FixtureDecisionAdapter:
         )
         debt_values.setdefault("evidence_confidence", 1.0)
         if context is not None:
-            for name, observed in _observed_debt_inputs(context).items():
+            for name, observed in graph_debt_features(context).items():
                 debt_values.setdefault(name, observed)
         remediation_values = _configured_values(request.configuration, "remediation_inputs")
         decision = decide_autonomy(
@@ -312,25 +333,6 @@ class FixtureDecisionAdapter:
                 },
             }
         )
-
-
-def _observed_debt_inputs(context: RepositoryContext) -> dict[str, float]:
-    """Derive the debt features this slice actually measures; omit the rest.
-
-    Only graph-backed observations are returned. complexity and coverage_deficit are
-    deliberately absent because nothing here measures them — the scorer treats missing
-    features as unknown and lowers confidence, which is the honest outcome.
-    """
-    reached = len(context.affected_symbols)
-    changed = max(len(context.changed_symbols), 1)
-    return {
-        # How far the change reaches through the call graph, saturating at 10 symbols.
-        "graph_centrality": min(reached / 10.0, 1.0),
-        # A change on a served endpoint sits on a user-facing path.
-        "path_criticality": 1.0 if context.affected_endpoints else 0.4,
-        # Symbols touched relative to a 5-symbol repair budget.
-        "estimated_patch_size": min(changed / 5.0, 1.0),
-    }
 
 
 def _plan_identity(

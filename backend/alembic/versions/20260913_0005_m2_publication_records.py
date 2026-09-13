@@ -1,15 +1,15 @@
 """Add durable patch and publication records for M2.
 
-Revision ID: 20260913_0004
-Revises: 20260913_0003
+Revision ID: 20260913_0005
+Revises: 20260913_0004
 """
 
 from __future__ import annotations
 
 from alembic import op
 
-revision = "20260913_0004"
-down_revision = "20260913_0003"
+revision = "20260913_0005"
+down_revision = "20260913_0004"
 branch_labels = None
 depends_on = None
 

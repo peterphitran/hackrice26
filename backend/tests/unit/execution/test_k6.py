@@ -15,9 +15,7 @@ def _summary(path: Path, p95: float = 20, queries: float = 2) -> None:
         json.dumps(
             {
                 "metrics": {
-                    "http_req_duration": {
-                        "values": {"med": 10, "p(95)": p95, "p(99)": 30}
-                    },
+                    "http_req_duration": {"values": {"med": 10, "p(95)": p95, "p(99)": 30}},
                     "http_reqs": {"values": {"rate": 4}},
                     "http_req_failed": {"values": {"rate": 0}},
                     "database_queries": {"values": {"med": queries}},

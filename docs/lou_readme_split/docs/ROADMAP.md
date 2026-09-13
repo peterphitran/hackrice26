@@ -105,11 +105,6 @@ Include uncertainty, criticality, reversibility, and expected value. Let policy 
 
 Use repository graph context to determine which tests and load scenarios should run.
 
-The local prototype now resolves graph evidence through a bounded, checked-in workload registry.
-Planning is deterministic, records omissions and incomplete-graph fallbacks, and freezes one ordered
-workload set for baseline, candidate, and fix verification. Executable command arrays remain owned
-by the trusted registry; graph, repository, user, and model text can select only registered IDs.
-
 ## M7 — Runtime Correlation
 
 Add:

@@ -9,9 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-import httpx
 import pytest
-from google.genai import _interactions as sdk_errors
 from pydantic import BaseModel
 
 from contracts import (
@@ -37,6 +35,18 @@ from lou.agents import (
 BACKEND = Path(__file__).parents[3]
 FIXTURES = BACKEND / "contracts" / "fixtures" / "demo_checkout"
 BROKEN_STORE = BACKEND / "fixtures" / "broken-store"
+
+
+class RateLimitError(Exception):
+    status_code = 429
+
+
+class APIConnectionError(ConnectionError):
+    pass
+
+
+class APITimeoutError(TimeoutError):
+    pass
 
 
 def _load(name: str, model: type[BaseModel]) -> Any:
@@ -210,12 +220,9 @@ def test_sdk_rate_limit_and_network_failures_are_distinct(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     request = ProviderRequest(operation="diagnose", bundle=_bundle())
-    http_request = httpx.Request("POST", "https://generativelanguage.googleapis.com")
-    quota = sdk_errors.RateLimitError(
-        "quota exhausted", response=httpx.Response(429, request=http_request), body=None
-    )
-    network = sdk_errors.APIConnectionError(request=http_request)
-    timeout = sdk_errors.APITimeoutError(request=http_request)
+    quota = RateLimitError("quota exhausted")
+    network = APIConnectionError("network unavailable")
+    timeout = APITimeoutError("provider timeout")
     for error, reason in [
         (quota, "rate_limit_or_quota_exhausted"),
         (network, "network_failure"),
@@ -241,10 +248,7 @@ def test_live_selection_without_key_falls_back_to_mock(
 def test_live_selection_falls_back_when_quota_is_exhausted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    http_request = httpx.Request("POST", "https://generativelanguage.googleapis.com")
-    quota = sdk_errors.RateLimitError(
-        "quota exhausted", response=httpx.Response(429, request=http_request), body=None
-    )
+    quota = RateLimitError("quota exhausted")
     _client(monkeypatch, quota)
     monkeypatch.setenv("LOU_AGENT_PROVIDER", "gemini")
 

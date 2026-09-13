@@ -73,14 +73,16 @@ def test_result_captures_both_streams_and_metadata(tmp_path: Path) -> None:
     assert result.stderr.text.splitlines() == ["err"]
     assert result.stdout.artifact_path is not None
     assert result.stdout.artifact_path.read_text().splitlines() == ["out"]
-    assert result.stdout.artifact_sha256 == hashlib.sha256(
-        result.stdout.artifact_path.read_bytes()
-    ).hexdigest()
+    assert (
+        result.stdout.artifact_sha256
+        == hashlib.sha256(result.stdout.artifact_path.read_bytes()).hexdigest()
+    )
     assert result.stderr.artifact_path is not None
     assert result.stderr.artifact_path.read_text().splitlines() == ["err"]
-    assert result.stderr.artifact_sha256 == hashlib.sha256(
-        result.stderr.artifact_path.read_bytes()
-    ).hexdigest()
+    assert (
+        result.stderr.artifact_sha256
+        == hashlib.sha256(result.stderr.artifact_path.read_bytes()).hexdigest()
+    )
     assert result.resource_metadata == {"cpus": 1}
 
 

@@ -8,9 +8,19 @@ from contracts import CanaryObservation, CanaryWindow, DeploymentDecision, SLOPo
 
 
 def evaluate_canary(
-    *, window: CanaryWindow, observation: CanaryObservation, policy: SLOPolicy, now: datetime
+    *,
+    window: CanaryWindow,
+    observation: CanaryObservation,
+    policy: SLOPolicy,
+    now: datetime,
+    verification_run_ids: tuple[str, ...],
+    trace_ids: tuple[str, ...],
 ) -> DeploymentDecision:
-    """Return the sole allowed transition from bounded staging evidence."""
+    """Return the sole allowed transition from bounded staging evidence.
+
+    A caller-asserted measurement is only usable when it is linked to a recorded
+    verification run and trace; an unlinked claim of health can never promote.
+    """
 
     if observation.release_id != window.release_id:
         raise ValueError("observation does not belong to the canary window")
@@ -36,6 +46,18 @@ def evaluate_canary(
         return _decision(window.release_id, "rollback", policy, now, "error-rate SLO breached")
     if observation.latency_ms > policy.max_latency_ms:
         return _decision(window.release_id, "rollback", policy, now, "latency SLO breached")
+    if not verification_run_ids:
+        return _decision(
+            window.release_id,
+            "pause",
+            policy,
+            now,
+            "validation is not linked to a verification run",
+        )
+    if not trace_ids:
+        return _decision(
+            window.release_id, "pause", policy, now, "telemetry is not linked to a recorded trace"
+        )
     if now < window.deadline_at:
         return _decision(
             window.release_id, "pause", policy, now, "canary window is still observing"

@@ -168,6 +168,8 @@ The MVP intentionally excludes multi-language indexing, Kubernetes, auto-merge, 
 - [Data & Learning](docs/DATA_AND_LEARNING.md)
 - [Team Ownership](docs/TEAM.md)
 - [Roadmap](docs/ROADMAP.md)
+- [Full Platform M2–M10 Specification](docs/FULL_PLATFORM_SPEC_M2_M10.md)
+- [M2 AI Remediation Loop Specification](docs/specs/M2_AI_REMEDIATION_LOOP.md)
 
 ## Design Principles
 

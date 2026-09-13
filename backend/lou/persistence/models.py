@@ -372,3 +372,29 @@ class PublicationAttemptRecord(Base):
     provider_reference: Mapped[str | None] = mapped_column(Text)
     message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class DeploymentJournalRecord(Base):
+    """One hash-chained entry in a release's append-only deployment journal.
+
+    The chain columns make an out-of-band edit detectable, and the sequence uniqueness
+    constraint makes concurrent appends conflict instead of silently interleaving.
+    """
+
+    __tablename__ = "deployment_journal"
+    __table_args__ = (
+        CheckConstraint("kind IN ('release', 'evidence')", name="deployment_journal_kind"),
+        CheckConstraint("sequence >= 0", name="deployment_journal_sequence_bounds"),
+        UniqueConstraint("release_id", "sequence", name="deployment_journal_release_sequence"),
+        Index("deployment_journal_release_idx", "release_id", "sequence"),
+        {"schema": "lou"},
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    release_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    body: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    previous_hash: Mapped[str] = mapped_column(String(64), nullable=False, server_default="")
+    record_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
