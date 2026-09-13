@@ -21,12 +21,21 @@ _GIT_REPOSITORY_ENVIRONMENT_VARIABLES = (
     "GIT_ALTERNATE_OBJECT_DIRECTORIES",
     "GIT_CEILING_DIRECTORIES",
     "GIT_COMMON_DIR",
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_SYSTEM",
     "GIT_DIR",
     "GIT_DISCOVERY_ACROSS_FILESYSTEM",
     "GIT_INDEX_FILE",
+    "GIT_NAMESPACE",
     "GIT_OBJECT_DIRECTORY",
+    "GIT_PREFIX",
+    "GIT_REPLACE_REF_BASE",
+    "GIT_SHALLOW_FILE",
     "GIT_WORK_TREE",
 )
+_GIT_REPOSITORY_ENVIRONMENT_PREFIXES = ("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")
 
 
 @dataclass(frozen=True)
@@ -127,6 +136,11 @@ def _discover_repository_root(path: Path) -> Path:
 
     if not root.is_dir():
         raise InvalidRepositoryError(path, "Git working-tree root is not a directory")
+    if not path.is_relative_to(root):
+        raise InvalidRepositoryError(
+            path,
+            "Git working-tree root does not contain the supplied path",
+        )
     return root
 
 
@@ -135,7 +149,7 @@ def _resolve_commit(
     revision: str,
     role: Literal["base", "candidate"],
 ) -> str:
-    if not revision:
+    if not revision or "\0" in revision:
         raise InvalidCommitError(repository_root, revision, role)
 
     result = _execute_git(
@@ -173,11 +187,14 @@ def _execute_git(
     environment = os.environ.copy()
     for variable in _GIT_REPOSITORY_ENVIRONMENT_VARIABLES:
         environment.pop(variable, None)
+    for variable in tuple(environment):
+        if variable.startswith(_GIT_REPOSITORY_ENVIRONMENT_PREFIXES):
+            environment.pop(variable)
     environment["LC_ALL"] = "C"
     environment["LANG"] = "C"
     try:
         return subprocess.run(
-            ["git", "-C", str(repository_path), *arguments],
+            ["git", "--no-replace-objects", "-C", str(repository_path), *arguments],
             check=False,
             capture_output=True,
             shell=False,

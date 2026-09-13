@@ -175,6 +175,22 @@ def test_nested_input_path_still_returns_repository_relative_posix_paths(
     assert change.added_files == ["nested/package/module.py"]
 
 
+def test_repository_core_worktree_cannot_redirect_analysis(
+    git_repository: Path,
+    tmp_path: Path,
+) -> None:
+    _commit(git_repository, "base")
+    decoy_repository = tmp_path / "decoy"
+    subprocess.run(["git", "init", "-q", str(decoy_repository)], check=True)
+    _git(git_repository, "config", "core.worktree", str(decoy_repository))
+
+    with pytest.raises(InvalidRepositoryError) as error:
+        _parse(git_repository, "HEAD", "HEAD")
+
+    assert error.value.path == git_repository
+    assert error.value.reason == "Git working-tree root does not contain the supplied path"
+
+
 def test_revisions_resolve_to_full_commit_ids_and_serialize(git_repository: Path) -> None:
     base = _commit(git_repository, "base")
     _git(git_repository, "tag", "base-tag", base)
@@ -196,6 +212,17 @@ def test_revisions_resolve_to_full_commit_ids_and_serialize(git_repository: Path
         "original_candidate_revision": "HEAD",
         "rename_similarity_threshold": 50,
     }
+
+
+def test_git_replace_refs_do_not_change_exact_commit_comparison(git_repository: Path) -> None:
+    base = _commit(git_repository, "base")
+    (git_repository / "module.py").write_text("VALUE = 1\n")
+    candidate = _commit(git_repository, "candidate")
+    _git(git_repository, "replace", candidate, base)
+
+    change = _parse(git_repository, base, candidate)
+
+    assert change.added_files == ["module.py"]
 
 
 def test_missing_repository_path_is_rejected(tmp_path: Path) -> None:
@@ -263,6 +290,18 @@ def test_option_like_revision_is_not_interpreted_as_git_option(git_repository: P
     assert error.value.revision == "--help"
 
 
+def test_revision_containing_nul_is_rejected_as_an_invalid_commit(
+    git_repository: Path,
+) -> None:
+    candidate = _commit(git_repository, "candidate")
+
+    with pytest.raises(InvalidCommitError) as error:
+        _parse(git_repository, "invalid\0revision", candidate)
+
+    assert error.value.role == "base"
+    assert error.value.revision == "invalid\0revision"
+
+
 def test_inherited_git_repository_environment_is_ignored(
     git_repository: Path,
     tmp_path: Path,
@@ -271,8 +310,10 @@ def test_inherited_git_repository_environment_is_ignored(
     base = _commit(git_repository, "base")
     (git_repository / "module.py").write_text("VALUE = 1\n")
     candidate = _commit(git_repository, "candidate")
-    monkeypatch.setenv("GIT_DIR", str(tmp_path / "missing.git"))
-    monkeypatch.setenv("GIT_WORK_TREE", str(tmp_path / "missing-worktree"))
+    decoy_repository = tmp_path / "decoy"
+    subprocess.run(["git", "init", "-q", str(decoy_repository)], check=True)
+    monkeypatch.setenv("GIT_DIR", str(decoy_repository / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(decoy_repository))
 
     change = _parse(git_repository, base, candidate)
 
@@ -285,6 +326,8 @@ def test_git_execution_sanitizes_only_repository_selection_environment(
 ) -> None:
     for variable in changes_module._GIT_REPOSITORY_ENVIRONMENT_VARIABLES:
         monkeypatch.setenv(variable, f"conflicting-{variable.lower()}")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "core.worktree")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "/conflicting/worktree")
     monkeypatch.setenv("PATH", "/expected/bin")
     captured_environment: dict[str, str] = {}
 
@@ -302,6 +345,8 @@ def test_git_execution_sanitizes_only_repository_selection_environment(
         variable not in captured_environment
         for variable in changes_module._GIT_REPOSITORY_ENVIRONMENT_VARIABLES
     )
+    assert "GIT_CONFIG_KEY_0" not in captured_environment
+    assert "GIT_CONFIG_VALUE_0" not in captured_environment
     assert captured_environment["PATH"] == "/expected/bin"
     assert captured_environment["LC_ALL"] == "C"
     assert captured_environment["LANG"] == "C"
