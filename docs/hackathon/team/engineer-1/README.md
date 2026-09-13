@@ -60,7 +60,7 @@ Do not implement sandbox commands, agent prompts, scoring policy, persistence, o
 
 - [ ] RI-005: select checkout pytest and k6 workloads from checked-in definitions.
 - [ ] Provide a deterministic fallback when graph extraction is incomplete.
-- [x] RI-006: normalize one static analyzer without coupling runtime verification to it.
+- [ ] RI-006: normalize one static analyzer without coupling runtime verification to it.
 
 ### Phase 4 — Reproducibility
 
