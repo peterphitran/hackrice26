@@ -257,3 +257,118 @@ class LouDecisionRecord(Base):
     rationale: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False, server_default="{}")
     details: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False, server_default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AgentRunRecord(Base):
+    """Durable stage-boundary state for one bounded remediation workflow."""
+
+    __tablename__ = "agent_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued', 'running', 'succeeded', 'failed', 'abandoned', 'cancelled')",
+            name="agent_run_status",
+        ),
+        CheckConstraint(
+            "stage IN ('context', 'diagnose', 'patch', 'validate', 'verify', 'decide', 'stopped')",
+            name="agent_run_stage",
+        ),
+        Index("agent_runs_analysis_status_idx", "analysis_run_id", "status"),
+        {"schema": "lou"},
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    analysis_run_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("lou.analysis_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    input_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    deduplication_key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    policy_revision: Mapped[str] = mapped_column(String(255), nullable=False)
+    limits: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False, server_default="{}")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, server_default="queued")
+    stage: Mapped[str] = mapped_column(String(32), nullable=False, server_default="context")
+    snapshot: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False, server_default="{}")
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    tokens_spent: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    estimated_cost_usd: Mapped[float] = mapped_column(nullable=False, server_default="0")
+    termination_reason: Mapped[str | None] = mapped_column(String(100))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class RemediationAttemptRecord(Base):
+    """Append-only output from one remediation stage."""
+
+    __tablename__ = "remediation_attempts"
+    __table_args__ = (
+        UniqueConstraint("agent_run_id", "attempt_key", name="remediation_attempt_key"),
+        Index("remediation_attempts_run_number_idx", "agent_run_id", "attempt_number"),
+        {"schema": "lou"},
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    agent_run_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("lou.agent_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    attempt_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    stage: Mapped[str] = mapped_column(String(32), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(100), nullable=False)
+    patch_sha256: Mapped[str | None] = mapped_column(String(64))
+    agent_result: Mapped[dict[str, object]] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
+    validation: Mapped[dict[str, object]] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
+    details: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False, server_default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PatchArtifactRecord(Base):
+    """Validated patch identity retained independently from an agent snapshot."""
+
+    __tablename__ = "patch_artifacts"
+    __table_args__ = (
+        UniqueConstraint("agent_run_id", "patch_sha256", name="patch_artifact_run_hash"),
+        {"schema": "lou"},
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    agent_run_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("lou.agent_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    patch_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    patch_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    artifact_uri: Mapped[str] = mapped_column(Text, nullable=False)
+    details: Mapped[dict[str, object]] = mapped_column(
+        "metadata", JSONB, nullable=False, server_default="{}"
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PublicationAttemptRecord(Base):
+    """Idempotent trusted-publisher outcome, including credential-free dry runs."""
+
+    __tablename__ = "publication_attempts"
+    __table_args__ = (
+        UniqueConstraint("publication_plan_id", name="publication_attempt_plan"),
+        Index("publication_attempts_agent_run_idx", "agent_run_id", "created_at"),
+        {"schema": "lou"},
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    agent_run_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("lou.agent_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    publication_plan_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    plan: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    provider_reference: Mapped[str | None] = mapped_column(Text)
+    message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

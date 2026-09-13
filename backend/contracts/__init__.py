@@ -2,6 +2,7 @@
 
 from contracts.models import (
     AgentResult,
+    AgentRun,
     AnalysisJob,
     Evidence,
     Finding,
@@ -10,6 +11,9 @@ from contracts.models import (
     ImpactPrediction,
     LouDecision,
     PatchArtifact,
+    PublicationPlan,
+    PublicationResult,
+    RemediationRequest,
     RepositoryChange,
     RepositoryContext,
     ObservedImpact,
@@ -20,6 +24,7 @@ from contracts.models import (
 
 __all__ = [
     "AgentResult",
+    "AgentRun",
     "AnalysisJob",
     "Evidence",
     "Finding",
@@ -28,6 +33,9 @@ __all__ = [
     "ImpactPrediction",
     "LouDecision",
     "PatchArtifact",
+    "PublicationPlan",
+    "PublicationResult",
+    "RemediationRequest",
     "RepositoryChange",
     "RepositoryContext",
     "ObservedImpact",

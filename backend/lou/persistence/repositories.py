@@ -23,6 +23,12 @@ from lou.persistence.interfaces import (
     InvalidRunTransitionError,
     PersistedVerificationBundle,
     PersistenceError,
+    RemediationAttemptInput,
+    RemediationAttemptView,
+    RemediationRunInput,
+    RemediationRunView,
+    RemediationStage,
+    RemediationStatus,
     ResultRepository,
     RunConflictError,
     RunStatus,
@@ -30,10 +36,12 @@ from lou.persistence.interfaces import (
     VerificationStatus,
 )
 from lou.persistence.models import (
+    AgentRunRecord,
     AnalysisRunRecord,
     EvidenceRecord,
     FindingRecord,
     LouDecisionRecord,
+    RemediationAttemptRecord,
     VerificationRunRecord,
 )
 
@@ -448,6 +456,256 @@ def _to_decision_view(record: LouDecisionRecord) -> DecisionView:
             metadata=dict(record.details),
         ),
     )
+
+
+class SqlAlchemyRemediationRunRepository:
+    """Transactional storage for resumable, bounded remediation workflows."""
+
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self._session_factory = session_factory
+
+    def create_or_get(self, value: RemediationRunInput) -> tuple[RemediationRunView, bool]:
+        with self._session_factory.begin() as session:
+            existing = session.scalar(
+                select(AgentRunRecord).where(
+                    AgentRunRecord.deduplication_key == value.deduplication_key
+                )
+            )
+            if existing is not None:
+                view = _to_remediation_run_view(existing)
+                if view.input != value:
+                    raise RunConflictError(
+                        "remediation deduplication key conflicts with immutable inputs"
+                    )
+                return view, True
+            try:
+                with session.begin_nested():
+                    record = AgentRunRecord(
+                        analysis_run_id=value.analysis_run_id,
+                        input_fingerprint=value.input_fingerprint,
+                        deduplication_key=value.deduplication_key,
+                        provider=value.provider,
+                        policy_revision=value.policy_revision,
+                        limits=value.limits,
+                    )
+                    session.add(record)
+                    session.flush()
+            except IntegrityError as error:
+                existing = session.scalar(
+                    select(AgentRunRecord).where(
+                        AgentRunRecord.deduplication_key == value.deduplication_key
+                    )
+                )
+                if existing is None:
+                    raise PersistenceError("remediation run could not be created") from error
+                view = _to_remediation_run_view(existing)
+                if view.input != value:
+                    raise RunConflictError(
+                        "remediation deduplication key conflicts with immutable inputs"
+                    ) from error
+                return view, True
+            return _to_remediation_run_view(record), False
+
+    def get(self, remediation_run_id: UUID) -> RemediationRunView | None:
+        with self._session_factory() as session:
+            record = session.get(AgentRunRecord, remediation_run_id)
+            return _to_remediation_run_view(record) if record is not None else None
+
+    def save_snapshot(
+        self,
+        remediation_run_id: UUID,
+        *,
+        status: RemediationStatus,
+        stage: RemediationStage,
+        snapshot: dict[str, object],
+        attempt_count: int,
+        tokens_spent: int,
+        estimated_cost_usd: float,
+        termination_reason: str | None = None,
+        error_message: str | None = None,
+    ) -> RemediationRunView:
+        with self._session_factory.begin() as session:
+            record = session.get(AgentRunRecord, remediation_run_id)
+            if record is None:
+                raise PersistenceError("remediation run was not found")
+            _apply_remediation_snapshot(
+                record,
+                status=status,
+                stage=stage,
+                snapshot=snapshot,
+                attempt_count=attempt_count,
+                tokens_spent=tokens_spent,
+                estimated_cost_usd=estimated_cost_usd,
+                termination_reason=termination_reason,
+                error_message=error_message,
+            )
+            session.flush()
+            return _to_remediation_run_view(record)
+
+    def append_attempt(
+        self, value: RemediationAttemptInput
+    ) -> tuple[RemediationAttemptView, bool]:
+        with self._session_factory.begin() as session:
+            return _append_remediation_attempt(session, value)
+
+    def persist_stage(
+        self,
+        remediation_run_id: UUID,
+        *,
+        status: RemediationStatus,
+        stage: RemediationStage,
+        snapshot: dict[str, object],
+        attempt_count: int,
+        tokens_spent: int,
+        estimated_cost_usd: float,
+        attempt: RemediationAttemptInput,
+        termination_reason: str | None = None,
+        error_message: str | None = None,
+    ) -> tuple[RemediationRunView, RemediationAttemptView, bool]:
+        """Write one complete boundary snapshot and its audit row atomically."""
+
+        if attempt.remediation_run_id != remediation_run_id:
+            raise PersistenceError("remediation attempt belongs to a different run")
+        with self._session_factory.begin() as session:
+            record = session.get(AgentRunRecord, remediation_run_id)
+            if record is None:
+                raise PersistenceError("remediation run was not found")
+            _apply_remediation_snapshot(
+                record,
+                status=status,
+                stage=stage,
+                snapshot=snapshot,
+                attempt_count=attempt_count,
+                tokens_spent=tokens_spent,
+                estimated_cost_usd=estimated_cost_usd,
+                termination_reason=termination_reason,
+                error_message=error_message,
+            )
+            attempt_view, existed = _append_remediation_attempt(session, attempt)
+            session.flush()
+            return _to_remediation_run_view(record), attempt_view, existed
+
+    def list_attempts(self, remediation_run_id: UUID) -> list[RemediationAttemptView]:
+        with self._session_factory() as session:
+            records = list(
+                session.scalars(
+                    select(RemediationAttemptRecord)
+                    .where(RemediationAttemptRecord.agent_run_id == remediation_run_id)
+                    .order_by(
+                        RemediationAttemptRecord.attempt_number,
+                        RemediationAttemptRecord.created_at,
+                    )
+                )
+            )
+            return [_to_remediation_attempt_view(record) for record in records]
+
+
+def _to_remediation_run_view(record: AgentRunRecord) -> RemediationRunView:
+    return RemediationRunView(
+        id=record.id,
+        input=RemediationRunInput(
+            analysis_run_id=record.analysis_run_id,
+            input_fingerprint=record.input_fingerprint,
+            deduplication_key=record.deduplication_key,
+            provider=record.provider,  # type: ignore[arg-type]
+            policy_revision=record.policy_revision,
+            limits=dict(record.limits),
+        ),
+        status=record.status,  # type: ignore[arg-type]
+        stage=record.stage,  # type: ignore[arg-type]
+        snapshot=dict(record.snapshot),
+        attempt_count=record.attempt_count,
+        tokens_spent=record.tokens_spent,
+        estimated_cost_usd=record.estimated_cost_usd,
+        termination_reason=record.termination_reason,
+        error_message=record.error_message,
+        started_at=record.started_at,
+        completed_at=record.completed_at,
+        created_at=record.created_at,
+        updated_at=record.updated_at,
+    )
+
+
+def _to_remediation_attempt_view(record: RemediationAttemptRecord) -> RemediationAttemptView:
+    return RemediationAttemptView(
+        id=record.id,
+        value=RemediationAttemptInput(
+            remediation_run_id=record.agent_run_id,
+            attempt_key=record.attempt_key,
+            attempt_number=record.attempt_number,
+            stage=record.stage,  # type: ignore[arg-type]
+            outcome=record.outcome,
+            patch_sha256=record.patch_sha256,
+            agent_result=dict(record.agent_result),
+            validation=dict(record.validation),
+            details=dict(record.details),
+        ),
+        created_at=record.created_at,
+    )
+
+
+def _apply_remediation_snapshot(
+    record: AgentRunRecord,
+    *,
+    status: RemediationStatus,
+    stage: RemediationStage,
+    snapshot: dict[str, object],
+    attempt_count: int,
+    tokens_spent: int,
+    estimated_cost_usd: float,
+    termination_reason: str | None,
+    error_message: str | None,
+) -> None:
+    if attempt_count < 0 or tokens_spent < 0 or estimated_cost_usd < 0:
+        raise PersistenceError("remediation usage counters cannot be negative")
+    if (
+        record.status in {"succeeded", "failed", "abandoned", "cancelled"}
+        and status != record.status
+    ):
+        raise InvalidRunTransitionError("a completed remediation run cannot be reopened")
+    record.status = status
+    record.stage = stage
+    record.snapshot = snapshot
+    record.attempt_count = attempt_count
+    record.tokens_spent = tokens_spent
+    record.estimated_cost_usd = estimated_cost_usd
+    record.termination_reason = termination_reason
+    record.error_message = error_message[:2000] if error_message is not None else None
+    now = datetime.now(UTC)
+    if status == "running" and record.started_at is None:
+        record.started_at = now
+    if status in {"succeeded", "failed", "abandoned", "cancelled"}:
+        record.completed_at = now
+
+
+def _append_remediation_attempt(
+    session: Session, value: RemediationAttemptInput
+) -> tuple[RemediationAttemptView, bool]:
+    existing = session.scalar(
+        select(RemediationAttemptRecord).where(
+            RemediationAttemptRecord.agent_run_id == value.remediation_run_id,
+            RemediationAttemptRecord.attempt_key == value.attempt_key,
+        )
+    )
+    if existing is not None:
+        view = _to_remediation_attempt_view(existing)
+        if view.value != value:
+            raise RunConflictError("remediation attempt key conflicts with immutable outcome")
+        return view, True
+    record = RemediationAttemptRecord(
+        agent_run_id=value.remediation_run_id,
+        attempt_key=value.attempt_key,
+        attempt_number=value.attempt_number,
+        stage=value.stage,
+        outcome=value.outcome,
+        patch_sha256=value.patch_sha256,
+        agent_result=value.agent_result,
+        validation=value.validation,
+        details=value.details,
+    )
+    session.add(record)
+    session.flush()
+    return _to_remediation_attempt_view(record), False
 
 
 def _validate_artifact_pair(uri: str | None, digest: str | None) -> None:

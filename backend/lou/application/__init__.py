@@ -17,7 +17,17 @@ from lou.application.live import (
     fixture_commands,
     fixture_workloads,
 )
+from lou.application.publication import GitHubCliPublisher, PublicationError, PublicationService
 from lou.application.remediation import PersistedFixVerifier, build_remediation_orchestrator
+from lou.application.remediation_fixture import (
+    FixtureRemediationAssembler,
+    RemediationAssemblyError,
+    run_fixture_remediation,
+)
+from lou.application.remediation_runs import (
+    RemediationExecutionResult,
+    RemediationExecutionService,
+)
 
 __all__ = [
     "AnalysisApplicationService",
@@ -28,11 +38,19 @@ __all__ = [
     "FixtureRepositoryIntelligence",
     "FixtureVerificationAdapter",
     "FixtureWorkloadSelector",
+    "GitHubCliPublisher",
+    "FixtureRemediationAssembler",
     "PersistedFixVerifier",
+    "PublicationError",
+    "PublicationService",
+    "RemediationExecutionResult",
+    "RemediationExecutionService",
+    "RemediationAssemblyError",
     "RunSnapshot",
     "VerificationBundle",
     "build_fixture_service",
     "build_remediation_orchestrator",
     "fixture_commands",
     "fixture_workloads",
+    "run_fixture_remediation",
 ]

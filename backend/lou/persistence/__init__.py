@@ -19,6 +19,11 @@ from lou.persistence.interfaces import (
     InvalidRunTransitionError,
     PersistedVerificationBundle,
     PersistenceError,
+    RemediationAttemptInput,
+    RemediationAttemptView,
+    RemediationRunInput,
+    RemediationRunRepository,
+    RemediationRunView,
     ResultRepository,
     RunConflictError,
     VerificationRunInput,
@@ -26,6 +31,7 @@ from lou.persistence.interfaces import (
 from lou.persistence.repositories import (
     SqlAlchemyAnalysisRunRepository,
     SqlAlchemyDecisionRepository,
+    SqlAlchemyRemediationRunRepository,
     SqlAlchemyResultRepository,
 )
 
@@ -45,11 +51,17 @@ __all__ = [
     "InMemoryAnalysisRunRepository",
     "InvalidRunTransitionError",
     "PersistenceError",
+    "RemediationAttemptInput",
+    "RemediationAttemptView",
+    "RemediationRunInput",
+    "RemediationRunRepository",
+    "RemediationRunView",
     "PersistedVerificationBundle",
     "RunConflictError",
     "SqlAlchemyAnalysisRunRepository",
     "SqlAlchemyDecisionRepository",
     "SqlAlchemyResultRepository",
+    "SqlAlchemyRemediationRunRepository",
     "ResultRepository",
     "VerificationRunInput",
 ]
