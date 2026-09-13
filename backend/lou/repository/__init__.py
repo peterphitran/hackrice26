@@ -36,6 +36,7 @@ from lou.repository.workloads import (
     fixture_commands,
     fixture_workload_registry,
     fixture_workloads,
+    load_workload_registry,
     plan_validation_workloads,
     select_fixture_workloads,
 )
@@ -70,6 +71,7 @@ __all__ = [
     "fixture_commands",
     "fixture_workload_registry",
     "fixture_workloads",
+    "load_workload_registry",
     "plan_validation_workloads",
     "select_fixture_workloads",
 ]

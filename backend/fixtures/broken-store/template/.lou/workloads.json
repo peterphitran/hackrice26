@@ -1,0 +1,37 @@
+{
+  "revision": "broken-store-v2",
+  "workloads": [
+    {
+      "id": "checkout-pytest",
+      "type": "pytest",
+      "path": "tests/test_checkout.py",
+      "priority": 100,
+      "estimated_cost_seconds": 30,
+      "fallback_eligible": true,
+      "reason": "Fixture checkout correctness gate.",
+      "criteria": [
+        {
+          "source": "affected_tests",
+          "value": "tests/test_checkout.py::",
+          "match": "prefix"
+        }
+      ]
+    },
+    {
+      "id": "checkout-k6",
+      "type": "k6",
+      "path": "loadtests/checkout.js",
+      "priority": 100,
+      "estimated_cost_seconds": 120,
+      "fallback_eligible": true,
+      "reason": "Fixture checkout query-count workload.",
+      "criteria": [
+        {
+          "source": "affected_endpoints",
+          "value": "POST /checkout",
+          "match": "exact"
+        }
+      ]
+    }
+  ]
+}

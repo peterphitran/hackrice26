@@ -14,6 +14,10 @@ htmlcov/
 .env.*
 !.env.example
 .lou/
+# The fixture declares its validation workloads the same way any repository does,
+# so its manifest is source, not a local artifact.
+!backend/fixtures/broken-store/template/.lou/
+!backend/fixtures/broken-store/template/.lou/**
 
 # Local specification drafts (not part of implementation pull requests)
 docs/hackathon/specs/

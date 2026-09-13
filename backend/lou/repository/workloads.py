@@ -2,16 +2,23 @@
 
 from __future__ import annotations
 
+import json
 import math
 import re
 from collections import Counter
 from dataclasses import asdict, dataclass
-from pathlib import PurePosixPath
-from typing import Literal, TypeAlias
+from pathlib import Path, PurePosixPath
+from typing import Literal, TypeAlias, cast
 
 from contracts import RepositoryContext, WorkloadSelection
 
 REGISTRY_REVISION = "broken-store-v2"
+MANIFEST_PATH = ".lou/workloads.json"
+MAX_MANIFEST_BYTES = 64 * 1024
+_EMPTY_REVISION = "undeclared-v1"
+# Only the types the runner can actually execute may be declared; anything else would
+# plan a workload that silently never runs.
+_MANIFEST_TYPES = frozenset({"pytest", "k6"})
 
 WorkloadType: TypeAlias = Literal["pytest", "k6", "semgrep", "custom"]
 CriterionSource: TypeAlias = Literal[
@@ -333,6 +340,109 @@ def fixture_workload_registry() -> WorkloadRegistry:
     )
 
 
+def trusted_command_for(workload_type: str, definition_path: str) -> tuple[str, ...]:
+    """Return Lou's own command for a declared workload.
+
+    Commands are never read from the repository under analysis. A manifest says which
+    workloads exist and when they matter; the argv that runs them is built here from
+    the workload type and an already-validated relative path, so a repository cannot
+    choose what executes inside the sandbox.
+    """
+
+    if workload_type == "pytest":
+        return ("python", "-m", "pytest", "-q", "-p", "no:cacheprovider", definition_path)
+    raise ValueError(f"no trusted command exists for workload type: {workload_type}")
+
+
+def load_workload_registry(
+    repository_path: Path, *, limits: RegistryLimits | None = None
+) -> WorkloadRegistry:
+    """Load the validation workloads a repository declares for itself.
+
+    This is what makes adaptive validation work outside the bundled fixture: any
+    repository can declare its own workloads and the graph evidence that makes each one
+    relevant. A repository that declares none yields an empty registry, which plans to
+    an explicit "nothing applicable" rather than a silent pass.
+    """
+
+    active = limits or RegistryLimits()
+    manifest = repository_path / MANIFEST_PATH
+    if not manifest.is_file():
+        return WorkloadRegistry(revision=_EMPTY_REVISION, entries=(), limits=active)
+    if manifest.stat().st_size > MAX_MANIFEST_BYTES:
+        raise ValueError(f"{MANIFEST_PATH} exceeds {MAX_MANIFEST_BYTES} bytes")
+    try:
+        document = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError(f"{MANIFEST_PATH} is not readable JSON") from error
+    if not isinstance(document, dict):
+        raise ValueError(f"{MANIFEST_PATH} must contain a JSON object")
+    revision = document.get("revision")
+    if not isinstance(revision, str) or not revision.strip():
+        raise ValueError(f"{MANIFEST_PATH} must declare a non-empty revision")
+    declared = document.get("workloads")
+    if not isinstance(declared, list):
+        raise ValueError(f"{MANIFEST_PATH} must declare a workloads array")
+    return WorkloadRegistry(
+        revision=revision,
+        entries=tuple(_definition(item) for item in declared),
+        limits=active,
+    )
+
+
+def _definition(value: object) -> WorkloadDefinition:
+    if not isinstance(value, dict):
+        raise ValueError("each declared workload must be a JSON object")
+    workload_type = value.get("type")
+    if workload_type not in _MANIFEST_TYPES:
+        raise ValueError(
+            f"declared workload type must be one of {sorted(_MANIFEST_TYPES)}; "
+            "Lou runs no other type"
+        )
+    definition_path = value.get("path")
+    if not isinstance(definition_path, str):
+        raise ValueError("each declared workload must name a definition path")
+    _validate_definition_path(definition_path)
+    criteria = value.get("criteria")
+    if not isinstance(criteria, list) or not criteria:
+        raise ValueError("each declared workload must declare graph-selection criteria")
+    cost = value.get("estimated_cost_seconds")
+    priority = value.get("priority", 100)
+    if isinstance(cost, bool) or not isinstance(cost, int | float):
+        raise ValueError("each declared workload must estimate its cost in seconds")
+    if isinstance(priority, bool) or not isinstance(priority, int):
+        raise ValueError("declared workload priority must be an integer")
+    return WorkloadDefinition(
+        workload_id=str(value.get("id", "")),
+        workload_type=cast(WorkloadType, workload_type),
+        definition_path=definition_path,
+        priority=priority,
+        estimated_cost_seconds=float(cost),
+        criteria=tuple(_criterion(item) for item in criteria),
+        fallback_eligible=bool(value.get("fallback_eligible", False)),
+        default_reason=str(value.get("reason", "Declared repository workload.")),
+        trusted_command=(
+            None if workload_type == "k6" else trusted_command_for(workload_type, definition_path)
+        ),
+        trusted_load=TrustedLoadConfiguration() if workload_type == "k6" else None,
+    )
+
+
+def _criterion(value: object) -> GraphSelectionCriterion:
+    if not isinstance(value, dict):
+        raise ValueError("each selection criterion must be a JSON object")
+    source = value.get("source")
+    text = value.get("value")
+    match = value.get("match", "exact")
+    if not isinstance(source, str) or not isinstance(text, str) or not isinstance(match, str):
+        raise ValueError("selection criterion source, value, and match must be strings")
+    return GraphSelectionCriterion(
+        source=cast(CriterionSource, source),
+        value=text,
+        match=cast(CriterionMatch, match),
+    )
+
+
 def fixture_workloads() -> tuple[WorkloadSelection, ...]:
     """Return compatibility records for the checked-in fixture registry."""
 
@@ -603,6 +713,7 @@ __all__ = [
     "fixture_commands",
     "fixture_workload_registry",
     "fixture_workloads",
+    "load_workload_registry",
     "plan_validation_workloads",
     "select_fixture_workloads",
 ]
