@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from contracts import WorkloadSelection
+from contracts import RepositoryContext, WorkloadSelection
 from lou.application.analysis import AnalysisRequest
 from lou.application.live import (
     FixtureDecisionAdapter,
@@ -31,19 +31,53 @@ def fixture_repository(tmp_path: Path) -> tuple[Path, str, str]:
     for key, value in (("user.name", "Lou Tests"), ("user.email", "lou-tests@example.invalid")):
         subprocess.run(["git", "-C", str(repository), "config", key, value], check=True)
     (repository / "store" / "app.py").write_text(
-        "class Store:\n    def checkout(self):\n        return 2\n", encoding="utf-8"
+        """from fastapi import FastAPI
+
+class Store:
+    def checkout(self, cursor):
+        cursor.execute("SELECT id FROM broken_store.products")
+        return 2
+
+store = Store()
+app = FastAPI()
+
+@app.post("/checkout")
+def checkout():
+    return store.checkout(None)
+""",
+        encoding="utf-8",
     )
     (repository / "tests" / "test_checkout.py").write_text(
-        "def test_receipt(): pass\n", encoding="utf-8"
+        """import store.app as store_app
+
+def test_receipt():
+    return store_app.Store().checkout(None)
+""",
+        encoding="utf-8",
     )
     (repository / "loadtests" / "checkout.js").write_text(
-        "export default function () {}\n", encoding="utf-8"
+        'import http from "k6/http";\nhttp.post(`${__ENV.BASE_URL}/checkout`);\n',
+        encoding="utf-8",
     )
     subprocess.run(["git", "-C", str(repository), "add", "."], check=True)
     subprocess.run(["git", "-C", str(repository), "commit", "-qm", "good"], check=True)
     base = _git(repository, "rev-parse", "HEAD")
     (repository / "store" / "app.py").write_text(
-        "class Store:\n    def checkout(self):\n        return 51\n", encoding="utf-8"
+        """from fastapi import FastAPI
+
+class Store:
+    def checkout(self, cursor):
+        cursor.execute("SELECT id FROM broken_store.products WHERE id = 1")
+        return 51
+
+store = Store()
+app = FastAPI()
+
+@app.post("/checkout")
+def checkout():
+    return store.checkout(None)
+""",
+        encoding="utf-8",
     )
     subprocess.run(["git", "-C", str(repository), "commit", "-am", "candidate", "-q"], check=True)
     return repository, base, _git(repository, "rev-parse", "HEAD")
@@ -120,7 +154,7 @@ def test_fixture_adapter_measures_disposable_worktrees_and_classifies_regression
 ) -> None:
     repository, base, candidate = fixture_repository
     request = _request(repository, base, candidate)
-    intelligence = FixtureRepositoryIntelligence()
+    intelligence = FixtureRepositoryIntelligence(tmp_path / "graph-artifacts")
     _, context = intelligence.inspect(request, "run-live")
     workloads = FixtureWorkloadSelector().select(context)
     runner = _Runner()
@@ -138,13 +172,49 @@ def test_fixture_adapter_measures_disposable_worktrees_and_classifies_regression
     assert (tmp_path / "artifacts" / "run-live" / "comparison" / "comparison.json").is_file()
 
 
+def test_fixture_intelligence_selects_only_graph_reached_registry_workloads(
+    fixture_repository: tuple[Path, str, str], tmp_path: Path
+) -> None:
+    repository, base, candidate = fixture_repository
+    _, context = FixtureRepositoryIntelligence(tmp_path / "graph-artifacts").inspect(
+        _request(repository, base, candidate), "run-graph-context"
+    )
+
+    assert context.selected_workload_ids == ["checkout-pytest", "checkout-load"]
+    assert context.affected_tests == ["tests/test_checkout.py"]
+    assert context.affected_endpoints == ["POST /checkout"]
+    assert context.affected_data_dependencies == ["broken_store.products"]
+    assert context.metadata["impact_traversal"]["nodes"]
+
+
+def test_selector_allows_only_known_configured_fallback_workloads() -> None:
+    context = RepositoryContext(
+        repository_id="fixture-broken-store",
+        commit_sha="a" * 40,
+        selected_workload_ids=["checkout-pytest"],
+        selection_reasons={"checkout-pytest": "configured fallback"},
+        completeness=0.5,
+        metadata={"fallback_workload_ids": ["checkout-pytest"]},
+    )
+
+    assert [item.workload_id for item in FixtureWorkloadSelector().select(context)] == [
+        "checkout-pytest"
+    ]
+
+    unknown = context.model_copy(update={"selected_workload_ids": ["unknown"]})
+    with pytest.raises(ValueError, match="unknown workload IDs"):
+        FixtureWorkloadSelector().select(unknown)
+
+
 def test_fixture_decision_defaults_to_report_and_can_recommend_when_policy_qualifies(
     fixture_repository: tuple[Path, str, str], tmp_path: Path
 ) -> None:
     repository, base, candidate = fixture_repository
     request = _request(repository, base, candidate)
     workloads = FixtureWorkloadSelector().select(
-        FixtureRepositoryIntelligence().inspect(request, "run-decision")[1]
+        FixtureRepositoryIntelligence(tmp_path / "graph-artifacts").inspect(
+            request, "run-decision"
+        )[1]
     )
     verifier = FixtureVerificationAdapter(_Runner(), tmp_path / "artifacts")
     baseline = verifier.measure_baseline(request, "run-decision", workloads)
