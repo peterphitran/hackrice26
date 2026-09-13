@@ -118,23 +118,44 @@ def test_classifies_candidate_only_and_shared_test_failures(tmp_path: Path) -> N
     assert candidate_only.verification.status == "failed"
 
 
-def test_excessive_variance_or_tool_failure_is_inconclusive(tmp_path: Path) -> None:
-    noisy = compare_candidate(
-        _job(),
-        (),
-        (),
-        _experiment("baseline", "a" * 40, queries=2, p95=20),
-        _experiment("candidate", "b" * 40, queries=51, p95=50, variance=0.3),
-        artifact_dir=tmp_path / "noisy",
-    )
+def test_tool_failure_is_inconclusive(tmp_path: Path) -> None:
     failed_tool = compare_candidate(
         _job(),
         (),
         (),
         _experiment("baseline", "a" * 40, queries=2, p95=20),
         _experiment("candidate", "b" * 40, queries=51, p95=50, failed=True),
-        artifact_dir=tmp_path / "tool-failure",
+        artifact_dir=tmp_path,
+    )
+
+    assert failed_tool.verification.status == "inconclusive"
+
+
+def test_noisy_latency_with_query_regression_is_failed(tmp_path: Path) -> None:
+    noisy = compare_candidate(
+        _job(),
+        (),
+        (),
+        _experiment("baseline", "a" * 40, queries=2, p95=20),
+        _experiment("candidate", "b" * 40, queries=51, p95=50, variance=0.3),
+        artifact_dir=tmp_path,
+    )
+
+    assert noisy.verification.status == "failed"
+    assert noisy.finding is not None
+    assert noisy.verification.metadata["excessive_variance"] is True
+    assert noisy.evidence.summary["excessive_variance"] is True
+
+
+def test_noisy_latency_with_equal_query_counts_is_inconclusive(tmp_path: Path) -> None:
+    noisy = compare_candidate(
+        _job(),
+        (),
+        (),
+        _experiment("baseline", "a" * 40, queries=2, p95=20),
+        _experiment("candidate", "b" * 40, queries=2, p95=50, variance=0.3),
+        artifact_dir=tmp_path,
     )
 
     assert noisy.verification.status == "inconclusive"
-    assert failed_tool.verification.status == "inconclusive"
+    assert noisy.verification.metadata["excessive_variance"] is True

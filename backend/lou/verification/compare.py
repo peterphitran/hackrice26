@@ -76,9 +76,11 @@ def compare_candidate(
     candidate_metrics = candidate_load.metrics
     classes = _failure_classes(baseline_checks, candidate_checks)
 
-    tool_failure = any(
-        check.outcome == "command_failed" for check in baseline_checks + candidate_checks
-    ) or baseline_load.command_failed or candidate_load.command_failed
+    tool_failure = (
+        any(check.outcome == "command_failed" for check in baseline_checks + candidate_checks)
+        or baseline_load.command_failed
+        or candidate_load.command_failed
+    )
     enough_samples = (
         len(baseline_load.samples) == expected_repetitions
         and len(candidate_load.samples) == expected_repetitions
@@ -100,9 +102,13 @@ def compare_candidate(
     regression = query_regression or latency_regression
 
     status: Literal["passed", "failed", "inconclusive"]
-    if tool_failure or not enough_samples or noisy:
+    if tool_failure or not enough_samples:
         status = "inconclusive"
-    elif classes["candidate_only"] or regression:
+    elif classes["candidate_only"] or query_regression:
+        status = "failed"
+    elif noisy:
+        status = "inconclusive"
+    elif latency_regression:
         status = "failed"
     else:
         status = "passed"
@@ -196,6 +202,10 @@ def compare_candidate(
         findings=[finding.finding_id] if finding else [],
         evidence_ids=[evidence.evidence_id],
         artifact_uri=artifact_uri,
-        metadata={"thresholds": thresholds, "failure_classification": classes},
+        metadata={
+            "thresholds": thresholds,
+            "failure_classification": classes,
+            "excessive_variance": noisy,
+        },
     )
     return DifferentialResult(verification, evidence, finding)
