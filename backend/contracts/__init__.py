@@ -22,6 +22,16 @@ from contracts.models import (
     VerificationResult,
     WorkloadSelection,
 )
+from contracts.risk import (
+    AutonomyDecision,
+    ConfidenceBounds,
+    CostEstimates,
+    DebtAssessment,
+    ExpectedValue,
+    RemediationRisk,
+    RiskFeature,
+    RiskSignals,
+)
 
 __all__ = [
     "AgentResult",
@@ -44,4 +54,12 @@ __all__ = [
     "PredictionFeatures",
     "VerificationResult",
     "WorkloadSelection",
+    "AutonomyDecision",
+    "ConfidenceBounds",
+    "CostEstimates",
+    "DebtAssessment",
+    "ExpectedValue",
+    "RemediationRisk",
+    "RiskFeature",
+    "RiskSignals",
 ]

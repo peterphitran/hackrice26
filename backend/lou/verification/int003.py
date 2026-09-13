@@ -203,7 +203,7 @@ def _inputs(
             context_completeness=1.0,
             evidence_confidence=1.0,
         ),
-        policy=AutonomyPolicy(max_autonomy=3),
+        policy=AutonomyPolicy(revision="1", max_autonomy=3),
         allowed_repository_root=repository,
         live_sources=("candidate_change", "selected_graph_context", "candidate_verification"),
     )

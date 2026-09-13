@@ -14,6 +14,7 @@ from lou.agents.orchestration import (
 )
 from lou.agents.provider import AgentProvider
 from lou.application.analysis import AnalysisStore, VerificationBundle
+from lou.policies.engine import PolicyEvaluator
 from lou.verification.fix import FixVerifier, PhaseObservations, WorkloadRunner
 
 
@@ -69,6 +70,7 @@ def build_remediation_orchestrator(
     runner: WorkloadRunner,
     artifact_root: Path,
     provider: AgentProvider | None = None,
+    policy_evaluator: PolicyEvaluator | None = None,
 ) -> RemediationOrchestrator:
     """Build the production remediation path around the real ``FixVerifier``.
 
@@ -89,4 +91,5 @@ def build_remediation_orchestrator(
         inputs,
         verifier=PersistedFixVerifier(verifier=verifier, store=store),
         provider=provider,
+        policy_evaluator=policy_evaluator,
     )

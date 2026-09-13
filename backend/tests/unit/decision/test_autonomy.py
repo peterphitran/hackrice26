@@ -1,6 +1,8 @@
+import json
 import subprocess
 from collections.abc import Mapping
 from hashlib import sha256
+from io import BytesIO
 from itertools import product
 from pathlib import Path
 from random import Random
@@ -12,15 +14,21 @@ from pydantic import ValidationError
 
 from contracts import (
     AnalysisJob,
+    AutonomyDecision,
+    CostEstimates,
     Finding,
     LouDecision,
     PatchArtifact,
     RepositoryContext,
+    RiskSignals,
     VerificationResult,
 )
-from lou.decision import decide_autonomy
+from lou.decision import decide_autonomy, decide_m5
+from lou.decision.patch_risk import patch_risk_flags
 from lou.policies import AutonomyPolicy
+from lou.policies.engine import LocalPolicy, OpaPolicy, PolicyInput
 from lou.scoring import DebtInputs, RemediationInputs, score_remediation
+from lou.scoring.assessment import assess_debt, assess_remediation
 
 DEBT: dict[str, float] = {
     "complexity": 0.8,
@@ -43,6 +51,16 @@ REMEDIATION: dict[str, float] = {
     "data_migration_risk": 0.0,
     "context_completeness": 1.0,
     "evidence_confidence": 1.0,
+}
+COST_SOURCES = {
+    name: "recorded-estimate"
+    for name in (
+        "debt_avoided_hours",
+        "remediation_hours",
+        "verification_hours",
+        "regression_probability",
+        "regression_loss_hours",
+    )
 }
 PATCH: PatchArtifact
 PATCH_CONTENT: bytes
@@ -211,6 +229,290 @@ def decide(**changes: Any) -> LouDecision:
         "candidate_regression": candidate_result(),
     }
     return decide_autonomy(**(base | changes))
+
+
+def decide_v2(**changes: Any) -> LouDecision:
+    base: dict[str, Any] = {
+        "decision_id": "decision-m5",
+        "analysis_run_id": "run-1",
+        "debt_inputs": _debt(DEBT),
+        "remediation_inputs": _remediation(REMEDIATION),
+        "risk_signals": RiskSignals(
+            incident_burden=0.2,
+            ownership_gap=0.1,
+            security_sensitive=False,
+            sources={"incident_burden": "incident-records"},
+        ),
+        "cost_estimates": CostEstimates(
+            horizon_days=30,
+            debt_avoided_hours=40,
+            remediation_hours=8,
+            verification_hours=2,
+            regression_probability=0.1,
+            regression_loss_hours=20,
+            sources=COST_SOURCES,
+        ),
+        "policy_revision": "1",
+        "policy_evaluator": LocalPolicy(revision="1", max_autonomy=5),
+        "patch": PATCH,
+        "patch_content": PATCH_CONTENT,
+        "analysis_job": ANALYSIS_JOB,
+        "expected_fix_commit_sha": FIX_SHA,
+        "expected_verification_attempt_id": "attempt-1",
+        "required_workload_ids": ["checkout"],
+        "verification_results": [result()],
+        "candidate_regression": candidate_result(),
+    }
+    return decide_m5(**(base | changes))
+
+
+def test_m5_complete_evidence_can_open_pr_but_never_auto_merge() -> None:
+    decision = decide_v2()
+    record = AutonomyDecision.model_validate(decision.metadata["m5"])
+    assert decision.autonomy_level == record.permitted_level == 3
+    assert decision.action == "open_pr"
+    assert record.organization_ceiling == 5
+    assert record.product_ceiling == 3
+    assert record.debt.rule_revision == "debt-v2"
+    assert sum(feature.contribution or 0 for feature in record.debt.features) == pytest.approx(
+        record.debt.debt_risk
+    )
+    assert record.remediation is not None
+    assert sum(
+        feature.contribution or 0 for feature in record.remediation.features
+    ) == pytest.approx(record.remediation.risk)
+    assert record.expected_value.lower_hours is not None
+    assert record.expected_value.lower_hours > 0
+    assert record.expected_value.central_hours == pytest.approx(28)
+    assert record.expected_value.components_hours["expected_regression_cost"] == pytest.approx(2)
+    assert decide_v2().metadata["m5"] == decision.metadata["m5"]
+    with pytest.raises(ValidationError):
+        AutonomyDecision.model_validate({**decision.metadata["m5"], "schema_version": "1"})
+    with pytest.raises(ValidationError):
+        AutonomyDecision.model_validate(
+            {
+                **decision.metadata["m5"],
+                "product_ceiling": 5,
+                "permitted_level": 5,
+                "action": "auto_deploy",
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    "change,reason",
+    [
+        (
+            {
+                "risk_signals": RiskSignals(
+                    incident_burden=0, ownership_gap=0, security_sensitive=True
+                )
+            },
+            "security_sensitive_or_unchecked",
+        ),
+        (
+            {"remediation_inputs": _remediation(REMEDIATION | {"coverage": 0.4})},
+            "low_or_unknown_coverage",
+        ),
+        (
+            {"remediation_inputs": _remediation(REMEDIATION | {"schema_migration_risk": 1})},
+            "schema_migration",
+        ),
+        (
+            {"remediation_inputs": _remediation(REMEDIATION | {"data_migration_risk": 1})},
+            "data_migration",
+        ),
+        ({"verification_results": "inconclusive"}, "verification_not_passed"),
+        ({"cost_estimates": None}, "expected_value_unknown"),
+        (
+            {"policy_evaluator": LocalPolicy(revision="wrong", max_autonomy=5)},
+            "policy_revision_mismatch",
+        ),
+    ],
+)
+def test_m5_safety_caps(change: dict[str, Any], reason: str) -> None:
+    if change.get("verification_results") == "inconclusive":
+        change = {"verification_results": [result(status="inconclusive")]}
+    decision = decide_v2(**change)
+    record = AutonomyDecision.model_validate(decision.metadata["m5"])
+    assert decision.autonomy_level <= 2
+    assert decision.action != "open_pr"
+    assert reason in record.denied_reasons
+    if reason in {
+        "security_sensitive_or_unchecked",
+        "low_or_unknown_coverage",
+        "schema_migration",
+        "data_migration",
+    }:
+        assert record.remediation is not None
+        assert record.remediation.risk >= 0.5
+
+
+@pytest.mark.parametrize("ceiling", range(6))
+def test_m5_organizational_ceiling(ceiling: int) -> None:
+    decision = decide_v2(policy_evaluator=LocalPolicy(revision="1", max_autonomy=ceiling))
+    assert decision.autonomy_level == min(ceiling, 3)
+
+
+def test_m5_job_revision_mismatch_stops_even_with_permissive_policy() -> None:
+    job = ANALYSIS_JOB.model_copy(update={"policy_revision": "obsolete"})
+    decision = decide_v2(analysis_job=job)
+    assert decision.autonomy_level == 0
+    assert "policy_revision_mismatch" in decision.metadata["m5"]["denied_reasons"]
+
+
+def test_m5_local_safety_limits_permissive_external_policy() -> None:
+    from lou.policies.engine import PolicyResult
+
+    class PermissivePolicy:
+        def evaluate(self, _: PolicyInput) -> PolicyResult:
+            return PolicyResult(revision="1", max_autonomy=5)
+
+    decision = decide_v2(
+        remediation_inputs=_remediation(REMEDIATION | {"coverage": 0.3}),
+        policy_evaluator=PermissivePolicy(),
+    )
+    assert decision.autonomy_level <= 1
+    assert "low_or_unknown_coverage" in decision.metadata["m5"]["denied_reasons"]
+
+
+def test_m5_negative_value_requires_human_recommendation() -> None:
+    decision = decide_v2(
+        cost_estimates=CostEstimates(
+            horizon_days=30,
+            debt_avoided_hours=1,
+            remediation_hours=20,
+            verification_hours=2,
+            regression_probability=0.2,
+            regression_loss_hours=30,
+            sources=COST_SOURCES,
+        )
+    )
+    assert decision.autonomy_level <= 1
+    assert (
+        "expected_value_not_positive_under_uncertainty" in decision.metadata["m5"]["denied_reasons"]
+    )
+
+
+def test_m5_costs_without_sources_remain_unknown() -> None:
+    decision = decide_v2(
+        cost_estimates=CostEstimates(
+            horizon_days=30,
+            debt_avoided_hours=40,
+            remediation_hours=8,
+            verification_hours=2,
+            regression_probability=0.1,
+            regression_loss_hours=20,
+        )
+    )
+    value = decision.metadata["m5"]["expected_value"]
+    assert value["status"] == "insufficient_evidence"
+    assert set(value["missing_inputs"]) == set(COST_SOURCES)
+    assert decision.autonomy_level <= 2
+
+
+def test_m5_missing_evidence_widens_bounds_and_reduces_confidence() -> None:
+    complete = assess_debt(
+        "run-1",
+        _debt(DEBT),
+        RiskSignals(
+            incident_burden=0.2,
+            ownership_gap=0.1,
+        ),
+    )
+    missing = assess_debt("run-1", _debt(DEBT), RiskSignals())
+    assert missing.confidence < complete.confidence
+    assert missing.bounds.upper > missing.bounds.lower
+    assert missing.bounds.lower <= complete.debt_risk <= missing.bounds.upper
+    assert set(missing.missing_inputs) == {"incident_burden", "ownership_gap"}
+    assert all(
+        feature.missing_reason == "not_observed"
+        for feature in missing.features
+        if feature.name in missing.missing_inputs
+    )
+    risky = assess_remediation("run-1", _remediation(REMEDIATION), RiskSignals())
+    assert "security_sensitive_or_unchecked" in risky.hard_risk_flags
+    assert "security_sensitive" in risky.missing_inputs
+    assert risky.risk >= 0.5
+    assert sum(feature.contribution or 0 for feature in risky.features) == pytest.approx(risky.risk)
+
+
+def test_opa_adapter_uses_same_input_and_fails_closed() -> None:
+    record = AutonomyDecision.model_validate(decide_v2().metadata["m5"])
+    inputs = PolicyInput(
+        analysis_run_id="run-1",
+        requested_revision="1",
+        evidence_level=3,
+        remediation=record.remediation,
+        expected_value=record.expected_value,
+        verification_statuses=("passed",),
+    )
+    local = LocalPolicy(revision="1", max_autonomy=2).evaluate(inputs)
+    payload = json.dumps({"result": local.model_dump(mode="json")}).encode()
+    opa = OpaPolicy(url="http://localhost:8181/v1/data/lou/decision", revision="1")
+    with mock_patch("lou.policies.engine.request.urlopen", return_value=BytesIO(payload)):
+        assert opa.evaluate(inputs) == local
+    with mock_patch("lou.policies.engine.request.urlopen", return_value=BytesIO(b"{}")):
+        denied = opa.evaluate(inputs)
+    assert denied.max_autonomy == 0
+    assert denied.deny_reasons == ("policy_evaluation_failed",)
+    mismatched = inputs.model_copy(update={"requested_revision": "old"})
+    with mock_patch("lou.policies.engine.request.urlopen") as transport:
+        assert opa.evaluate(mismatched).max_autonomy == 0
+        transport.assert_not_called()
+
+
+def test_m5_opa_deny_cannot_be_overridden_by_high_ceiling() -> None:
+    from lou.policies.engine import PolicyResult
+
+    class DenyingPolicy:
+        def evaluate(self, _: PolicyInput) -> PolicyResult:
+            return PolicyResult(
+                revision="1",
+                max_autonomy=5,
+                denied=True,
+                deny_reasons=("organizational_deny",),
+            )
+
+    decision = decide_v2(policy_evaluator=DenyingPolicy())
+    assert decision.autonomy_level == 0
+    assert "organizational_deny" in decision.metadata["m5"]["denied_reasons"]
+    assert "policy_revision_mismatch" not in decision.metadata["m5"]["denied_reasons"]
+
+
+def test_m5_organization_override_and_deny_only_lower_levels() -> None:
+    sensitive = RiskSignals(incident_burden=0, ownership_gap=0, security_sensitive=True)
+    overridden = decide_v2(
+        risk_signals=sensitive,
+        policy_evaluator=LocalPolicy(
+            revision="1", max_autonomy=5, overrides={"security_sensitive_or_unchecked": 0}
+        ),
+    )
+    assert overridden.autonomy_level == 0
+    assert (
+        "organizational_override:security_sensitive_or_unchecked"
+        in overridden.metadata["m5"]["denied_reasons"]
+    )
+    denied = decide_v2(
+        risk_signals=sensitive,
+        policy_evaluator=LocalPolicy(
+            revision="1",
+            max_autonomy=5,
+            deny_on=frozenset({"security_sensitive_or_unchecked"}),
+        ),
+    )
+    assert denied.autonomy_level == 0
+    assert "policy_revision_mismatch" not in denied.metadata["m5"]["denied_reasons"]
+
+
+def test_m5_detects_sensitive_and_migration_paths_in_patch_bytes() -> None:
+    diff = (
+        b"diff --git a/auth/login.py b/auth/login.py\n"
+        b"--- a/auth/login.py\n+++ b/auth/login.py\n"
+        b"diff --git a/migrations/001.sql b/migrations/001.sql\n"
+        b"--- a/migrations/001.sql\n+++ b/migrations/001.sql\n"
+    )
+    assert patch_risk_flags(diff) == ("schema_or_data_migration_file", "security_sensitive_file")
 
 
 @pytest.mark.parametrize(

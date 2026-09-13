@@ -1,5 +1,23 @@
 # Contract Reference
 
+## M5 version-two assessments
+
+The additive M5 contracts in `risk.py` use `schema_version: "2"` and reject
+unknown fields. `DebtAssessment` records principal, interest, debt risk,
+confidence, missing inputs, scenario bounds, and each contributing feature.
+`RemediationRisk` records patch risk, confidence, missing inputs, hard risk flags,
+and the same feature details. `AutonomyDecision` binds both assessments to the
+expected-value result, requested and evaluated policy revisions, evidence level,
+organization and product ceilings, final action, and limiting reasons. A4 and
+A5 are recognized as policy levels but the contract rejects a product ceiling
+above A3. `CostEstimates` and `RiskSignals` are version-two input records;
+unmeasured values remain `null`. Expected value is in engineering hours over
+an explicit day horizon, and its bounds are labeled scenarios until calibrated
+outcome data exists.
+
+Version-one `LouDecision` remains the persistence and CLI envelope. Its
+`metadata.m5` field contains the complete version-two `AutonomyDecision`.
+
 This is the field-level reference for Lou's version-one shared contracts. Use it
 when producing, consuming, or reviewing data passed between workstreams.
 

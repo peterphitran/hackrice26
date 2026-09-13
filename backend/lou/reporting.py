@@ -116,6 +116,54 @@ class EvidenceReport:
                 f"- Debt risk: `{item['debt_risk']}`; remediation risk: "
                 f"`{item['remediation_risk']}`"
             )
+            m5 = item.get("m5")
+            if isinstance(m5, dict):
+                for category, score_name in (("debt", "debt_risk"), ("remediation", "risk")):
+                    assessment = m5.get(category)
+                    if not isinstance(assessment, dict):
+                        continue
+                    bounds = assessment.get("bounds", {})
+                    bounds_text = (
+                        f"; scenario range `{bounds.get('lower')}`–`{bounds.get('upper')}`"
+                        if isinstance(bounds, dict)
+                        else ""
+                    )
+                    lines.append(
+                        f"- M5 {category}: `{assessment.get(score_name)}`; "
+                        f"confidence `{assessment.get('confidence')}`{bounds_text}"
+                    )
+                    missing = assessment.get("missing_inputs", [])
+                    if isinstance(missing, list) and missing:
+                        lines.append("  - Missing: " + ", ".join(str(name) for name in missing))
+                    features = assessment.get("features", [])
+                    if isinstance(features, list):
+                        for feature in features:
+                            if isinstance(feature, dict):
+                                lines.append(
+                                    f"  - `{feature.get('name')}`: value `{feature.get('value')}`, "
+                                    f"contribution `{feature.get('contribution')}`, "
+                                    f"source `{feature.get('source') or 'unknown'}`"
+                                )
+                value = _mapping(m5.get("expected_value", {}))
+                lines.append(
+                    f"- M5 expected value: `{value.get('status', 'unknown')}`"
+                    + (
+                        f"; {value.get('central_hours')} engineering hours over "
+                        f"{value.get('horizon_days')} days "
+                        f"(scenario range {value.get('lower_hours')}–{value.get('upper_hours')})"
+                        if value.get("status") == "estimated"
+                        else ""
+                    )
+                )
+                lines.append(
+                    f"- M5 policy: requested `{m5.get('requested_policy_revision')}`, "
+                    f"evaluated `{m5.get('evaluated_policy_revision')}`, "
+                    f"organization ceiling `A{m5.get('organization_ceiling')}`, "
+                    f"product ceiling `A{m5.get('product_ceiling')}`"
+                )
+                reasons = m5.get("denied_reasons", [])
+                if isinstance(reasons, list) and reasons:
+                    lines.append("- M5 limits: " + ", ".join(str(reason) for reason in reasons))
         notes = _list(self.payload.get("notes", []))
         if notes:
             lines.extend(["", "## Evidence Notes", ""])
@@ -380,6 +428,7 @@ def _decision(record: LouDecisionRecord | None) -> dict[str, object] | None:
         "confidence": record.confidence,
         "autonomy_level": record.autonomy_level,
         "rationale": record.rationale,
+        "m5": getattr(record, "details", {}).get("m5"),
     }
 
 
