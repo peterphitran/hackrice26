@@ -206,9 +206,7 @@ def _attempt_for(
         else None
     )
     patch = (
-        current.current_patch_response.patch_artifact
-        if current.current_patch_response
-        else None
+        current.current_patch_response.patch_artifact if current.current_patch_response else None
     )
     key_material = {
         "attempt": current.attempt_count,
@@ -221,9 +219,7 @@ def _attempt_for(
     }
     key = sha256(json.dumps(key_material, sort_keys=True).encode("utf-8")).hexdigest()
     outcome = (
-        current.termination_reason
-        or current.last_failure_reason
-        or f"advanced_to_{current.stage}"
+        current.termination_reason or current.last_failure_reason or f"advanced_to_{current.stage}"
     )
     return RemediationAttemptInput(
         remediation_run_id=remediation_run_id,

@@ -38,6 +38,7 @@ from lou.deployment import (
     DeploymentJournal,
     DeploymentService,
     InMemoryDeploymentAdapter,
+    SqlAlchemyVerificationLookup,
 )
 from lou.persistence.database import create_session_factory
 from lou.persistence.interfaces import AnalysisRunView, RemediationRunView
@@ -141,6 +142,8 @@ class DeploymentCreateRequest(ApiModel):
     latency_ms: float = Field(default=100, gt=0, le=600_000)
     sample_count: int = Field(default=20, ge=0, le=100_000)
     complete: bool = True
+    verification_run_ids: tuple[str, ...] = ()
+    trace_ids: tuple[str, ...] = ()
 
 
 class DeploymentRollbackRequest(ApiModel):
@@ -183,6 +186,7 @@ def create_app(
     service_factory: AnalysisServiceFactory | None = None,
     run_status_reader: RunStatusReader | None = None,
     report_reader_factory: ReportReaderFactory | None = None,
+    deployment_service_factory: Callable[[], DeploymentService] | None = None,
 ) -> FastAPI:
     """Create an API whose dependencies can be replaced in tests.
 
@@ -195,6 +199,7 @@ def create_app(
     build_service = service_factory or (lambda: build_fixture_service(active_settings))
     read_status = run_status_reader or _database_status_reader(active_settings)
     read_report = report_reader_factory or _report_reader_factory(active_settings)
+    build_deployment = deployment_service_factory or (lambda: _deployment_service(active_settings))
     app = FastAPI(title="Lou API", version=APP_VERSION)
 
     @app.exception_handler(RequestValidationError)
@@ -364,7 +369,7 @@ def create_app(
         analysis_run_id: UUID, payload: DeploymentCreateRequest
     ) -> DeploymentResponse | JSONResponse:
         now = datetime.now(UTC)
-        service = _deployment_service(active_settings)
+        service = build_deployment()
         try:
             release = Release(
                 release_id=payload.release_id,
@@ -402,6 +407,8 @@ def create_app(
                     minimum_samples=5,
                     telemetry_max_age_seconds=60,
                 ),
+                verification_run_ids=payload.verification_run_ids,
+                trace_ids=payload.trace_ids,
             )
         except (DeploymentConflictError, ValueError):
             return _error_response(
@@ -413,7 +420,7 @@ def create_app(
 
     @app.get("/deployments/{release_id}", response_model=DeploymentResponse, tags=["deployment"])
     def get_deployment(release_id: str) -> DeploymentResponse | JSONResponse:
-        result = _deployment_service(active_settings).status(release_id)
+        result = build_deployment().status(release_id)
         if result is None:
             return _error_response(
                 status.HTTP_404_NOT_FOUND, "release_not_found", "Release was not found."
@@ -429,7 +436,7 @@ def create_app(
         release_id: str, payload: DeploymentRollbackRequest
     ) -> DeploymentResponse | JSONResponse:
         try:
-            result = _deployment_service(active_settings).rollback(
+            result = build_deployment().rollback(
                 release_id, actor="lou-api-operator", reason=payload.reason
             )
         except DeploymentConflictError:
@@ -440,7 +447,7 @@ def create_app(
 
     @app.get("/deployments/{release_id}/report", response_model=None, tags=["deployment"])
     def get_deployment_report(release_id: str) -> Response:
-        report = _deployment_service(active_settings).report(release_id)
+        report = build_deployment().report(release_id)
         if report is None:
             return _error_response(
                 status.HTTP_404_NOT_FOUND, "release_not_found", "Release was not found."
@@ -601,7 +608,11 @@ def _publication_response(result: object) -> PublicationResponse:
 
 
 def _deployment_service(settings: Settings) -> DeploymentService:
-    return DeploymentService(DeploymentJournal(settings.artifact_root), InMemoryDeploymentAdapter())
+    return DeploymentService(
+        DeploymentJournal(settings.artifact_root),
+        InMemoryDeploymentAdapter(),
+        verifications=SqlAlchemyVerificationLookup(create_session_factory(settings)),
+    )
 
 
 def _deployment_response(result: object) -> DeploymentResponse:

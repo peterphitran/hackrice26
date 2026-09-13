@@ -542,9 +542,7 @@ class SqlAlchemyRemediationRunRepository:
             session.flush()
             return _to_remediation_run_view(record)
 
-    def append_attempt(
-        self, value: RemediationAttemptInput
-    ) -> tuple[RemediationAttemptView, bool]:
+    def append_attempt(self, value: RemediationAttemptInput) -> tuple[RemediationAttemptView, bool]:
         with self._session_factory.begin() as session:
             return _append_remediation_attempt(session, value)
 

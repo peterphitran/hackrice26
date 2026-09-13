@@ -78,9 +78,7 @@ class MemoryRemediationRuns:
         self._runs[remediation_run_id] = saved
         return saved
 
-    def append_attempt(
-        self, value: RemediationAttemptInput
-    ) -> tuple[RemediationAttemptView, bool]:
+    def append_attempt(self, value: RemediationAttemptInput) -> tuple[RemediationAttemptView, bool]:
         attempts = self._attempts[value.remediation_run_id]
         existing = next(
             (item for item in attempts if item.value.attempt_key == value.attempt_key), None

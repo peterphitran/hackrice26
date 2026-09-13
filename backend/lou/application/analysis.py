@@ -27,6 +27,12 @@ AnalysisStatus = Literal["succeeded", "failed", "inconclusive", "running", "canc
 TriggerType = Literal["cli", "api", "github_webhook", "fixture"]
 RunSnapshotStatus = Literal["queued", "running", "succeeded", "failed", "cancelled", "inconclusive"]
 MAX_CONFIGURATION_BYTES = 32_768
+_CORRELATION_STATUSES = frozenset({"resolved", "ambiguous", "unresolved"})
+_CORRELATION_METHODS = frozenset({"exact", "normalized", "workload", "unresolved", "ambiguous"})
+
+
+def _optional_str(value: object) -> str | None:
+    return value if isinstance(value, str) and value else None
 
 
 @dataclass(frozen=True)
@@ -265,10 +271,12 @@ class AnalysisApplicationService:
 
             candidate = self._verification.measure_candidate(request, run_id, workloads, baseline)
             if prediction is not None:
-                observed = _observed_from_context(run_id, context, candidate)
-                from lou.prediction.evaluate import evaluate_impact
+                observed = _observed_from_execution(run_id, candidate)
+                from lou.prediction.evaluate import EXECUTION_OBSERVABLE_KINDS, evaluate_impact
 
-                evaluation = evaluate_impact(prediction, observed)
+                evaluation = evaluate_impact(
+                    prediction, observed, graded_kinds=EXECUTION_OBSERVABLE_KINDS
+                )
                 candidate = VerificationBundle(
                     candidate.result.model_copy(
                         update={
@@ -392,16 +400,13 @@ class AnalysisApplicationService:
         if not isinstance(query_count, (int, float)):
             query_count = result.metrics.get("candidate_query_count")
         if isinstance(query_count, (int, float)):
-            correlation = self._correlation(context)
+            table = next(iter(context.affected_data_dependencies), None)
+            correlation = self._correlation(context, table)
+            attributes: dict[str, object] = {"db.operation": "SELECT", "db.rows": query_count}
+            if table:
+                attributes["db.table"] = table
             self._telemetry.record(
-                "lou.db.query",
-                runtime_context,
-                {
-                    "db.operation": "SELECT",
-                    "db.table": "broken_store.products",
-                    "db.rows": query_count,
-                },
-                correlation=correlation,
+                "lou.db.query", runtime_context, attributes, correlation=correlation
             )
             # ``record`` owns trace safety; persist correlation only as an allowlisted summary.
             self._telemetry.record(
@@ -439,11 +444,34 @@ class AnalysisApplicationService:
                     pass
 
     @staticmethod
-    def _correlation(context: RepositoryContext) -> CorrelationResult:
-        symbol = context.changed_symbols[0] if context.changed_symbols else None
-        if symbol is None:
-            return CorrelationResult("unresolved", "unresolved", None, None, 0.0)
-        return CorrelationResult("resolved", "exact", symbol, f"function:{symbol}", 1.0)
+    def _correlation(context: RepositoryContext, runtime_name: str | None) -> CorrelationResult:
+        """Return the correlation the repository graph recorded for a runtime name.
+
+        Correlation is resolved against the graph when the context is built. A name the
+        graph could not resolve stays unresolved here; runtime evidence must never claim
+        a mapping the repository does not support.
+        """
+
+        unresolved = CorrelationResult("unresolved", "unresolved", None, None, 0.0)
+        summaries = context.metadata.get("runtime_correlations")
+        if not runtime_name or not isinstance(summaries, dict):
+            return unresolved
+        summary = summaries.get(runtime_name)
+        if not isinstance(summary, dict):
+            return unresolved
+        status = summary.get("status")
+        method = summary.get("method")
+        if status not in _CORRELATION_STATUSES or method not in _CORRELATION_METHODS:
+            return unresolved
+        candidates = summary.get("candidates")
+        return CorrelationResult(
+            status=status,
+            method=method,
+            symbol_key=_optional_str(summary.get("symbol_key")),
+            graph_node_id=_optional_str(summary.get("graph_node_id")),
+            confidence=float(summary.get("confidence") or 0.0),
+            candidates=tuple(str(item) for item in candidates) if candidates else (),
+        )
 
     @staticmethod
     def _validate(request: AnalysisRequest) -> None:
@@ -470,32 +498,48 @@ class AnalysisApplicationService:
         return f"{request.deduplication_key()}-force-{request.force_token}"
 
 
-def _observed_from_context(
-    run_id: str, context: RepositoryContext, candidate: VerificationBundle
-) -> ObservedImpact:
-    items = [
-        ImpactItem(kind="symbol", key=key, score=1, reason="observed in graph context")
-        for key in context.affected_symbols
-    ]
-    items.extend(
-        ImpactItem(kind="service", key=key, score=1, reason="observed in graph context")
-        for key in context.affected_endpoints + context.affected_data_dependencies
-    )
-    items.extend(
-        ImpactItem(kind="workload", key=key, score=1, reason="executed")
-        for key in context.selected_workload_ids
-    )
-    if candidate.result.metadata.get("classification") == "runtime_regression":
-        items.append(
-            ImpactItem(
-                kind="runtime_path",
-                key="candidate:runtime_regression",
-                score=1,
-                reason="observed by differential verification",
+def _observed_from_execution(run_id: str, candidate: VerificationBundle) -> ObservedImpact:
+    """Derive observed impact from what execution measured.
+
+    Only kinds in `EXECUTION_OBSERVABLE_KINDS` appear here. Reading observations back
+    out of the repository graph would grade the predictor against its own input and
+    make precision and recall true by construction.
+    """
+
+    result = candidate.result
+    observed: dict[tuple[str, str], ImpactItem] = {}
+
+    def add(kind: str, key: str, reason: str) -> None:
+        if key:
+            observed.setdefault(
+                (kind, key),
+                ImpactItem(
+                    kind=kind,  # type: ignore[arg-type]
+                    key=key,
+                    score=1,
+                    reason=reason,
+                    provenance=["differential-verification"],
+                ),
             )
+
+    classes = result.metadata.get("failure_classification")
+    if isinstance(classes, dict):
+        for bucket in ("candidate_only", "shared"):
+            entries = classes.get(bucket)
+            if isinstance(entries, list):
+                for entry in entries:
+                    add(
+                        "workload", str(entry), f"workload failed in the candidate phase ({bucket})"
+                    )
+
+    if result.metadata.get("classification") == "runtime_regression":
+        add(
+            "workload", result.workload_id or "", "workload carried the measured runtime regression"
         )
+        add("runtime_path", "candidate:runtime_regression", "measured by differential verification")
+
     return ObservedImpact(
         analysis_run_id=run_id,
-        items=tuple(sorted(items, key=lambda item: (item.kind, item.key))),
-        source_revisions=("m3-verification",),
+        items=tuple(sorted(observed.values(), key=lambda item: (item.kind, item.key))),
+        source_revisions=("differential-verification",),
     )

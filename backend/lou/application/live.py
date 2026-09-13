@@ -40,6 +40,7 @@ from lou.repository import fixture_workloads as fixture_workloads
 from lou.repository.symbols import extract_changed_symbols
 from lou.scoring import DebtInputs, RemediationInputs
 from lou.telemetry import build_telemetry
+from lou.telemetry.correlation import correlation_summary
 from lou.verification import PhaseObservations, compare_candidate, disposable_worktree
 
 _REGISTRY_REVISION = REGISTRY_REVISION
@@ -123,6 +124,12 @@ class FixtureRepositoryIntelligence:
                     "fallback_workload_ids": list(fallback_workload_ids),
                     "impact_prediction": prediction.model_dump(mode="json"),
                     "validation_plan": plan.payload(),
+                    "runtime_correlations": {
+                        name: correlation_summary(name, snapshot)
+                        for name in sorted(
+                            {*context.changed_symbols, *context.affected_data_dependencies}
+                        )
+                    },
                 },
             }
         )

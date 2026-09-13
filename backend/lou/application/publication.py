@@ -144,7 +144,9 @@ class PublicationService:
             and patch_diff is not None
         )
         publish_allowed = (
-            dry_run_allowed and decision is not None and decision.action == "open_pr"
+            dry_run_allowed
+            and decision is not None
+            and decision.action == "open_pr"
             and decision.autonomy_level >= 3
         )
         return plan, patch_diff or "", dry_run_allowed, publish_allowed

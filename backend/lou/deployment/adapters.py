@@ -5,8 +5,53 @@ from __future__ import annotations
 import subprocess
 from dataclasses import dataclass, field
 
+from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session, sessionmaker
+
 from contracts import Release
-from lou.deployment.ports import DeploymentPort
+from lou.deployment.ports import DeploymentPort, VerificationFact, VerificationLookupPort
+from lou.persistence.models import VerificationRunRecord
+
+
+@dataclass
+class InMemoryVerificationLookup(VerificationLookupPort):
+    """Deterministic verification lookup for tests and local rehearsal."""
+
+    facts: dict[str, VerificationFact] = field(default_factory=dict)
+
+    def record(self, fact: VerificationFact) -> None:
+        self.facts[fact.verification_run_id] = fact
+
+    def get(self, verification_run_id: str) -> VerificationFact | None:
+        return self.facts.get(verification_run_id)
+
+
+@dataclass(frozen=True)
+class SqlAlchemyVerificationLookup(VerificationLookupPort):
+    """Read verification runs from the durable store by contract ID."""
+
+    session_factory: sessionmaker[Session]
+
+    def get(self, verification_run_id: str) -> VerificationFact | None:
+        try:
+            with self.session_factory() as session:
+                record = session.execute(
+                    select(VerificationRunRecord).where(
+                        VerificationRunRecord.contract_id == verification_run_id
+                    )
+                ).scalar_one_or_none()
+        except SQLAlchemyError:
+            # An unreadable store cannot confirm health, so the canary pauses.
+            return None
+        if record is None:
+            return None
+        return VerificationFact(
+            verification_run_id=verification_run_id,
+            analysis_run_id=str(record.analysis_run_id),
+            commit_sha=record.commit_sha,
+            status=record.status,
+        )
 
 
 @dataclass

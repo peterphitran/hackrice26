@@ -136,9 +136,7 @@ def _source_path(root: Path, relative: str) -> Path:
 def _artifact_path(root: Path, analysis_run_id: str, phase: Phase) -> tuple[Path, str]:
     if _RUN_ID.fullmatch(analysis_run_id) is None:
         raise ValueError("Analysis run ID is not safe for an artifact path")
-    relative = PurePosixPath(
-        ".lou", "artifacts", analysis_run_id, phase, "static-analyzer.json"
-    )
+    relative = PurePosixPath(".lou", "artifacts", analysis_run_id, phase, "static-analyzer.json")
     directory = root.joinpath(*relative.parts[:-1])
     current = root
     for part in relative.parts:

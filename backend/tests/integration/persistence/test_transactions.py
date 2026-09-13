@@ -181,15 +181,24 @@ def test_invalid_bundle_rolls_back_verification_finding_and_evidence(seeded_db: 
         )
 
     with session_factory() as session:
-        assert session.scalars(
-            select(VerificationRunRecord).where(VerificationRunRecord.analysis_run_id == run.id)
-        ).all() == []
-        assert session.scalars(
-            select(FindingRecord).where(FindingRecord.analysis_run_id == run.id)
-        ).all() == []
-        assert session.scalars(
-            select(EvidenceRecord).where(EvidenceRecord.analysis_run_id == run.id)
-        ).all() == []
+        assert (
+            session.scalars(
+                select(VerificationRunRecord).where(VerificationRunRecord.analysis_run_id == run.id)
+            ).all()
+            == []
+        )
+        assert (
+            session.scalars(
+                select(FindingRecord).where(FindingRecord.analysis_run_id == run.id)
+            ).all()
+            == []
+        )
+        assert (
+            session.scalars(
+                select(EvidenceRecord).where(EvidenceRecord.analysis_run_id == run.id)
+            ).all()
+            == []
+        )
 
 
 def test_decision_is_durable_and_idempotent(seeded_db: Any) -> None:

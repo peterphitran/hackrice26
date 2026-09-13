@@ -49,8 +49,7 @@ def upgrade() -> None:
         """
     )
     op.execute(
-        "CREATE INDEX agent_runs_analysis_status_idx "
-        "ON lou.agent_runs (analysis_run_id, status)"
+        "CREATE INDEX agent_runs_analysis_status_idx ON lou.agent_runs (analysis_run_id, status)"
     )
     op.execute(
         """

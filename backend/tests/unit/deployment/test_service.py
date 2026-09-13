@@ -1,4 +1,6 @@
+import json
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -15,6 +17,8 @@ from lou.deployment import (
     DeploymentJournal,
     DeploymentService,
     InMemoryDeploymentAdapter,
+    InMemoryVerificationLookup,
+    VerificationFact,
     evaluate_canary,
 )
 from lou.deployment.int008 import _rehearse
@@ -83,15 +87,73 @@ def test_policy_never_promotes_missing_or_bad_evidence(
     observation: CanaryObservation, now: datetime, action: str
 ) -> None:
     assert (
-        evaluate_canary(window=_window(), observation=observation, policy=_policy(), now=now).action
+        evaluate_canary(
+            window=_window(),
+            observation=observation,
+            policy=_policy(),
+            now=now,
+            verification_run_ids=("verification-1",),
+            trace_ids=("0" * 32,),
+        ).action
         == action
     )
 
 
-def test_staging_release_promotes_and_writes_linked_immutable_evidence(tmp_path) -> None:
+@pytest.mark.parametrize(
+    ("verification_run_ids", "trace_ids"),
+    [((), ("0" * 32,)), (("verification-1",), ()), ((), ())],
+)
+def test_policy_pauses_when_asserted_health_is_not_linked_to_evidence(
+    verification_run_ids: tuple[str, ...], trace_ids: tuple[str, ...]
+) -> None:
+    decision = evaluate_canary(
+        window=_window(),
+        observation=_observation(),
+        policy=_policy(),
+        now=NOW + timedelta(minutes=5),
+        verification_run_ids=verification_run_ids,
+        trace_ids=trace_ids,
+    )
+
+    assert decision.action == "pause"
+
+
+def test_unlinked_caller_assertion_cannot_promote_through_the_service(tmp_path: Path) -> None:
     adapter = InMemoryDeploymentAdapter()
     service = DeploymentService(
         DeploymentJournal(tmp_path), adapter, clock=lambda: NOW + timedelta(minutes=5)
+    )
+
+    service.release(_release())
+    result = service.observe(
+        release_id="release-1", window=_window(), observation=_observation(), policy=_policy()
+    )
+
+    assert result.status == "paused"
+    assert result.decision and result.decision.action == "pause"
+    assert ("promote", "release-1") not in adapter.actions
+
+
+def _lookup(**updates: str) -> InMemoryVerificationLookup:
+    values = {
+        "verification_run_id": "verification-1",
+        "analysis_run_id": "run-1",
+        "commit_sha": "a" * 40,
+        "status": "passed",
+    }
+    values.update(updates)
+    lookup = InMemoryVerificationLookup()
+    lookup.record(VerificationFact(**values))
+    return lookup
+
+
+def test_staging_release_promotes_and_writes_linked_immutable_evidence(tmp_path: Path) -> None:
+    adapter = InMemoryDeploymentAdapter()
+    service = DeploymentService(
+        DeploymentJournal(tmp_path),
+        adapter,
+        clock=lambda: NOW + timedelta(minutes=5),
+        verifications=_lookup(),
     )
 
     released = service.release(_release())
@@ -120,7 +182,7 @@ def test_staging_release_promotes_and_writes_linked_immutable_evidence(tmp_path)
     assert len(report["evidence"]) == 4  # type: ignore[arg-type]
 
 
-def test_release_and_rollback_are_idempotent(tmp_path) -> None:
+def test_release_and_rollback_are_idempotent(tmp_path: Path) -> None:
     adapter = InMemoryDeploymentAdapter()
     service = DeploymentService(DeploymentJournal(tmp_path), adapter, clock=lambda: NOW)
 
@@ -135,7 +197,29 @@ def test_release_and_rollback_are_idempotent(tmp_path) -> None:
     assert adapter.actions == [("release", "release-1"), ("rollback", "release-1")]
 
 
-def test_release_id_cannot_be_reused_for_a_different_commit(tmp_path) -> None:
+def test_failed_release_adapter_can_be_retried_without_stranding_journal(tmp_path: Path) -> None:
+    class FailOnceAdapter(InMemoryDeploymentAdapter):
+        attempts = 0
+
+        def release(self, release: Release) -> None:
+            self.attempts += 1
+            if self.attempts == 1:
+                raise RuntimeError("controller unavailable")
+            super().release(release)
+
+    adapter = FailOnceAdapter()
+    service = DeploymentService(DeploymentJournal(tmp_path), adapter, clock=lambda: NOW)
+
+    with pytest.raises(RuntimeError, match="controller"):
+        service.release(_release())
+    retried = service.release(_release())
+
+    assert adapter.attempts == 2
+    assert retried.status == "released"
+    assert [item.event for item in retried.evidence] == ["released"]
+
+
+def test_release_id_cannot_be_reused_for_a_different_commit(tmp_path: Path) -> None:
     service = DeploymentService(
         DeploymentJournal(tmp_path), InMemoryDeploymentAdapter(), clock=lambda: NOW
     )
@@ -146,7 +230,7 @@ def test_release_id_cannot_be_reused_for_a_different_commit(tmp_path) -> None:
         service.release(changed)
 
 
-def test_production_target_is_rejected(tmp_path) -> None:
+def test_production_target_is_rejected(tmp_path: Path) -> None:
     service = DeploymentService(
         DeploymentJournal(tmp_path), InMemoryDeploymentAdapter(), clock=lambda: NOW
     )
@@ -162,7 +246,7 @@ def test_production_target_is_rejected(tmp_path) -> None:
         service.release(production)
 
 
-def test_int008_controller_logic_rehearses_promotion_and_rollback(tmp_path) -> None:
+def test_int008_controller_logic_rehearses_promotion_and_rollback(tmp_path: Path) -> None:
     result = _rehearse(tmp_path)
 
     assert result["healthy_promoted"] is True
@@ -189,3 +273,143 @@ def test_release_rejects_credential_bearing_artifact_uri() -> None:
         Release.model_validate(
             _release().model_dump() | {"artifact_uri": "https://user:password@example.test/app"}
         )
+
+
+@pytest.mark.parametrize(
+    ("lookup", "reason"),
+    [
+        (InMemoryVerificationLookup(), "verification run does not exist"),
+        (_lookup(status="failed"), "verification run did not pass"),
+        (_lookup(analysis_run_id="other-run"), "verification belongs to another analysis run"),
+        (_lookup(commit_sha="c" * 40), "verification measured a different commit"),
+    ],
+)
+def test_promotion_requires_a_passing_verification_run_for_this_exact_release(
+    tmp_path: Path, lookup: InMemoryVerificationLookup, reason: str
+) -> None:
+    adapter = InMemoryDeploymentAdapter()
+    service = DeploymentService(
+        DeploymentJournal(tmp_path),
+        adapter,
+        clock=lambda: NOW + timedelta(minutes=5),
+        verifications=lookup,
+    )
+
+    service.release(_release())
+    result = service.observe(
+        release_id="release-1",
+        window=_window(),
+        observation=_observation(),
+        policy=_policy(),
+        verification_run_ids=("verification-1",),
+        trace_ids=("0" * 32,),
+    )
+
+    assert result.status == "paused", reason
+    assert ("promote", "release-1") not in adapter.actions
+
+
+def test_a_service_without_a_verification_lookup_can_never_promote(tmp_path: Path) -> None:
+    adapter = InMemoryDeploymentAdapter()
+    service = DeploymentService(
+        DeploymentJournal(tmp_path), adapter, clock=lambda: NOW + timedelta(minutes=5)
+    )
+
+    service.release(_release())
+    result = service.observe(
+        release_id="release-1",
+        window=_window(),
+        observation=_observation(),
+        policy=_policy(),
+        verification_run_ids=("verification-1",),
+        trace_ids=("0" * 32,),
+    )
+
+    assert result.status == "paused"
+    assert ("promote", "release-1") not in adapter.actions
+
+
+def test_a_forged_promotion_appended_to_the_journal_is_rejected(tmp_path: Path) -> None:
+    journal = DeploymentJournal(tmp_path)
+    journal.create(_release())
+    forged = DeploymentEvidence(
+        evidence_id="forged-1",
+        release_id="release-1",
+        analysis_run_id="run-1",
+        commit_sha="a" * 40,
+        event="promoted",
+        actor="attacker",
+        collected_at=NOW,
+    )
+    path = tmp_path / "deployments" / "release-1.jsonl"
+    with path.open("a", encoding="utf-8") as stream:
+        stream.write(json.dumps({"kind": "evidence", "evidence": forged.model_dump(mode="json")}))
+        stream.write("\n")
+
+    with pytest.raises(DeploymentConflictError, match="chain is broken"):
+        journal.get("release-1")
+
+
+def test_editing_a_recorded_release_is_detected(tmp_path: Path) -> None:
+    journal = DeploymentJournal(tmp_path)
+    journal.create(_release())
+    path = tmp_path / "deployments" / "release-1.jsonl"
+    record = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
+    record["release"]["commit_sha"] = "c" * 40
+    path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+    with pytest.raises(DeploymentConflictError, match="was modified"):
+        journal.get("release-1")
+
+
+def test_the_decision_is_recorded_before_the_controller_is_called(tmp_path: Path) -> None:
+    class FailingAdapter(InMemoryDeploymentAdapter):
+        def promote(self, release: Release) -> None:
+            raise RuntimeError("controller unavailable")
+
+    service = DeploymentService(
+        DeploymentJournal(tmp_path),
+        FailingAdapter(),
+        clock=lambda: NOW + timedelta(minutes=5),
+        verifications=_lookup(),
+    )
+    service.release(_release())
+
+    with pytest.raises(RuntimeError, match="controller"):
+        service.observe(
+            release_id="release-1",
+            window=_window(),
+            observation=_observation(),
+            policy=_policy(),
+            verification_run_ids=("verification-1",),
+            trace_ids=("0" * 32,),
+        )
+
+    stranded = service.status("release-1")
+    assert stranded is not None
+    assert stranded.status == "released"
+    assert stranded.decision is not None and stranded.decision.action == "promote"
+
+
+def test_validated_evidence_records_only_confirmed_verification_runs(tmp_path: Path) -> None:
+    service = DeploymentService(
+        DeploymentJournal(tmp_path),
+        InMemoryDeploymentAdapter(),
+        clock=lambda: NOW + timedelta(minutes=5),
+        verifications=_lookup(),
+    )
+    service.release(_release())
+
+    result = service.observe(
+        release_id="release-1",
+        window=_window(),
+        observation=_observation(),
+        policy=_policy(),
+        verification_run_ids=("verification-1", "fabricated"),
+        trace_ids=("0" * 32,),
+    )
+
+    validated = next(item for item in result.evidence if item.event == "validated")
+    assert validated.verification_run_ids == ("verification-1",)
+    assert validated.metadata["verification_runs_claimed"] == 2
+    assert validated.metadata["verification_runs_confirmed"] == 1

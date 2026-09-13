@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -36,11 +37,11 @@ class _Session:
         return self.records.get(model)
 
     def scalars(self, statement: object) -> list[object]:
-        entity = statement.column_descriptions[0]["entity"]  # type: ignore[union-attr]
+        entity = cast(Any, statement).column_descriptions[0]["entity"]
         return self.rows.get(entity, [])
 
     def scalar(self, statement: object) -> object | None:
-        entity = statement.column_descriptions[0]["entity"]  # type: ignore[union-attr]
+        entity = cast(Any, statement).column_descriptions[0]["entity"]
         values = self.rows.get(entity, [])
         return values[0] if values else None
 
@@ -53,7 +54,7 @@ def test_report_reads_persisted_records_and_verifies_relative_artifacts(tmp_path
     artifact.parent.mkdir()
     artifact.write_text('{"query_count_delta":49}\n', encoding="utf-8")
     digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
-    records = {
+    records: dict[object, object] = {
         AnalysisRunRecord: SimpleNamespace(
             id=run_id,
             repository_id=repository_id,
@@ -101,7 +102,7 @@ def test_report_reads_persisted_records_and_verifies_relative_artifacts(tmp_path
         artifact_uri=None,
         artifact_sha256=None,
     )
-    rows = {
+    rows: dict[object, list[object]] = {
         WorkloadRecord: [
             SimpleNamespace(
                 id=workload_id,
@@ -149,7 +150,7 @@ def test_report_reads_persisted_records_and_verifies_relative_artifacts(tmp_path
         ],
     }
     session = _Session(records, rows)
-    report = EvidenceReportReader(lambda: session, tmp_path).read(str(run_id))
+    report = EvidenceReportReader(cast(Any, lambda: session), tmp_path).read(str(run_id))
 
     first = report.render_json()
     assert first == report.render_json()

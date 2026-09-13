@@ -13,9 +13,7 @@ Phase = Literal["baseline", "candidate", "fix"]
 VerificationStatus = Literal["queued", "running", "passed", "failed", "inconclusive"]
 Severity = Literal["info", "low", "medium", "high", "critical"]
 RemediationProvider = Literal["mock", "gemini"]
-RemediationStatus = Literal[
-    "queued", "running", "succeeded", "failed", "abandoned", "cancelled"
-]
+RemediationStatus = Literal["queued", "running", "succeeded", "failed", "abandoned", "cancelled"]
 RemediationStage = Literal[
     "context", "diagnose", "patch", "validate", "verify", "decide", "stopped"
 ]

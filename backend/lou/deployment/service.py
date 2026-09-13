@@ -6,6 +6,7 @@ import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from hashlib import sha256
 from pathlib import Path
 from typing import Literal
 from uuid import uuid4
@@ -19,10 +20,11 @@ from contracts import (
     SLOPolicy,
 )
 from lou.deployment.policy import evaluate_canary
-from lou.deployment.ports import DeploymentPort
+from lou.deployment.ports import DeploymentPort, VerificationLookupPort
 
 DeploymentStatus = Literal["released", "paused", "promoted", "rolled_back"]
 Clock = Callable[[], datetime]
+_CHAIN_FIELDS = frozenset({"previous_hash", "record_hash"})
 
 
 class DeploymentConflictError(ValueError):
@@ -53,6 +55,7 @@ class DeploymentJournal:
         ]
         if not records or records[0].get("kind") != "release":
             raise DeploymentConflictError("deployment journal is invalid")
+        self._verify_chain(records)
         release = Release.model_validate(records[0]["release"])
         evidence = tuple(
             DeploymentEvidence.model_validate(record["evidence"])
@@ -99,10 +102,38 @@ class DeploymentJournal:
         assert result is not None
         return result
 
+    @staticmethod
+    def _digest(previous_hash: str, body: dict[str, object]) -> str:
+        payload = json.dumps(body, sort_keys=True, separators=(",", ":"))
+        return sha256(f"{previous_hash}\x1f{payload}".encode()).hexdigest()
+
+    def _verify_chain(self, records: list[dict[str, object]]) -> None:
+        """Reject a journal whose records were edited, removed, or appended out of band."""
+
+        previous_hash = ""
+        for record in records:
+            body = {key: value for key, value in record.items() if key not in _CHAIN_FIELDS}
+            if record.get("previous_hash") != previous_hash:
+                raise DeploymentConflictError("deployment journal chain is broken")
+            expected = self._digest(previous_hash, body)
+            if record.get("record_hash") != expected:
+                raise DeploymentConflictError("deployment journal record was modified")
+            previous_hash = expected
+
     def _append(self, release_id: str, value: dict[str, object]) -> None:
         path = self._path(release_id)
+        previous_hash = ""
+        if path.exists():
+            lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line]
+            if lines:
+                previous_hash = str(json.loads(lines[-1]).get("record_hash", ""))
+        record = {
+            **value,
+            "previous_hash": previous_hash,
+            "record_hash": self._digest(previous_hash, value),
+        }
         with path.open("a", encoding="utf-8") as stream:
-            stream.write(json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n")
+            stream.write(json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n")
 
     def _path(self, release_id: str) -> Path:
         if not release_id.replace("-", "").replace("_", "").isalnum():
@@ -114,18 +145,48 @@ class DeploymentService:
     """Coordinates a staging release without embedding controller credentials."""
 
     def __init__(
-        self, journal: DeploymentJournal, adapter: DeploymentPort, clock: Clock | None = None
+        self,
+        journal: DeploymentJournal,
+        adapter: DeploymentPort,
+        clock: Clock | None = None,
+        verifications: VerificationLookupPort | None = None,
     ) -> None:
         self._journal = journal
         self._adapter = adapter
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._verifications = verifications
+
+    def _confirmed_verifications(
+        self, release: Release, verification_run_ids: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        """Keep only IDs that name a passing verification run for this exact release.
+
+        Without a lookup nothing can be confirmed, so a service configured without one
+        can pause but never promote.
+        """
+
+        if self._verifications is None:
+            return ()
+        confirmed = []
+        for verification_run_id in verification_run_ids:
+            fact = self._verifications.get(verification_run_id)
+            if (
+                fact is not None
+                and fact.status == "passed"
+                and fact.analysis_run_id == release.analysis_run_id
+                and fact.commit_sha == release.commit_sha
+            ):
+                confirmed.append(verification_run_id)
+        return tuple(confirmed)
 
     def release(self, release: Release) -> DeploymentResult:
         if release.target.environment != "staging":
             raise ValueError("M8 accepts staging releases only")
         result = self._journal.create(release)
-        if result.reused:
+        if result.reused and any(item.event == "released" for item in result.evidence):
             return result
+        # A journal with no released event means the prior adapter call failed.
+        # Retry the idempotent adapter operation instead of stranding the release.
         self._adapter.release(release)
         persisted = self._journal.append(self._evidence(release, "released", release.requested_by))
         return DeploymentResult(
@@ -152,25 +213,17 @@ class DeploymentService:
         if window.release_id != release_id or observation.release_id != release_id:
             raise DeploymentConflictError("canary data does not belong to the release")
         release = current.release
+        confirmed = self._confirmed_verifications(release, verification_run_ids)
         self._journal.append(
             self._evidence(
                 release,
                 "validated",
                 "lou-validation",
-                verification_run_ids=verification_run_ids,
-                metadata={"validation_passed": observation.validation_passed},
-            )
-        )
-        self._journal.append(
-            self._evidence(
-                release,
-                "observed",
-                "lou-observer",
-                trace_ids=trace_ids,
+                verification_run_ids=confirmed,
                 metadata={
-                    "sample_count": observation.sample_count,
-                    "telemetry_available": observation.telemetry_available,
                     "validation_passed": observation.validation_passed,
+                    "verification_runs_claimed": len(verification_run_ids),
+                    "verification_runs_confirmed": len(confirmed),
                 },
             )
         )
@@ -179,6 +232,24 @@ class DeploymentService:
             observation=observation,
             policy=policy,
             now=observation.observed_at,
+            verification_run_ids=confirmed,
+            trace_ids=trace_ids,
+        )
+        # Record the intended transition before touching the controller: a crash between
+        # the two leaves the decision auditable, and the adapter call is idempotent.
+        self._journal.append(
+            self._evidence(
+                release,
+                "observed",
+                "lou-observer",
+                trace_ids=trace_ids,
+                decision=decision,
+                metadata={
+                    "sample_count": observation.sample_count,
+                    "telemetry_available": observation.telemetry_available,
+                    "validation_passed": observation.validation_passed,
+                },
+            )
         )
         if decision.action == "promote":
             self._adapter.promote(release)
