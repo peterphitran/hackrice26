@@ -8,20 +8,29 @@ from lou.deployment import (
     DeploymentJournal,
     DeploymentService,
     InMemoryDeploymentAdapter,
+    InMemoryTraceLookup,
     InMemoryVerificationLookup,
+    TraceFact,
     VerificationFact,
 )
 
 ANALYSIS_RUN_ID = "00000000-0000-0000-0000-000000000001"
 COMMIT_SHA = "a" * 40
+TRACE_ID = "0" * 32
 
 
-def _client(tmp_path: Path, *, verified: bool = True) -> TestClient:
+def _client(tmp_path: Path, *, verified: bool = True, traced: bool = True) -> TestClient:
     lookup = InMemoryVerificationLookup()
     if verified:
         lookup.record(VerificationFact("verification-1", ANALYSIS_RUN_ID, COMMIT_SHA, "passed"))
+    traces = InMemoryTraceLookup()
+    if traced:
+        traces.record(TraceFact(TRACE_ID, ANALYSIS_RUN_ID, COMMIT_SHA, 12))
     service = DeploymentService(
-        DeploymentJournal(tmp_path), InMemoryDeploymentAdapter(), verifications=lookup
+        DeploymentJournal(tmp_path),
+        InMemoryDeploymentAdapter(),
+        verifications=lookup,
+        traces=traces,
     )
     return TestClient(
         create_app(
@@ -103,7 +112,25 @@ def test_deployment_api_pauses_when_the_named_verification_run_is_not_recorded(
             "repository_id": "demo",
             "commit_sha": COMMIT_SHA,
             "verification_run_ids": ["verification-1"],
-            "trace_ids": ["0" * 32],
+            "trace_ids": [TRACE_ID],
+        },
+    )
+
+    assert response.status_code == 202
+    assert response.json()["status"] == "paused"
+
+
+def test_deployment_api_pauses_when_the_named_trace_is_not_recorded(tmp_path: Path) -> None:
+    client = _client(tmp_path, traced=False)
+
+    response = client.post(
+        f"/analysis/{ANALYSIS_RUN_ID}/deployments",
+        json={
+            "release_id": "untraced",
+            "repository_id": "demo",
+            "commit_sha": COMMIT_SHA,
+            "verification_run_ids": ["verification-1"],
+            "trace_ids": [TRACE_ID],
         },
     )
 

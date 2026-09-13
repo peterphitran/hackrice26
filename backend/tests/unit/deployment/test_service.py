@@ -17,7 +17,9 @@ from lou.deployment import (
     DeploymentJournal,
     DeploymentService,
     InMemoryDeploymentAdapter,
+    InMemoryTraceLookup,
     InMemoryVerificationLookup,
+    TraceFact,
     VerificationFact,
     evaluate_canary,
 )
@@ -147,6 +149,19 @@ def _lookup(**updates: str) -> InMemoryVerificationLookup:
     return lookup
 
 
+def _traces(**updates: object) -> InMemoryTraceLookup:
+    values: dict[str, object] = {
+        "trace_id": "0" * 32,
+        "analysis_run_id": "run-1",
+        "commit_sha": "a" * 40,
+        "observation_count": 12,
+    }
+    values.update(updates)
+    lookup = InMemoryTraceLookup()
+    lookup.record(TraceFact(**values))  # type: ignore[arg-type]
+    return lookup
+
+
 def test_staging_release_promotes_and_writes_linked_immutable_evidence(tmp_path: Path) -> None:
     adapter = InMemoryDeploymentAdapter()
     service = DeploymentService(
@@ -154,6 +169,7 @@ def test_staging_release_promotes_and_writes_linked_immutable_evidence(tmp_path:
         adapter,
         clock=lambda: NOW + timedelta(minutes=5),
         verifications=_lookup(),
+        traces=_traces(),
     )
 
     released = service.release(_release())
@@ -293,6 +309,7 @@ def test_promotion_requires_a_passing_verification_run_for_this_exact_release(
         adapter,
         clock=lambda: NOW + timedelta(minutes=5),
         verifications=lookup,
+        traces=_traces(),
     )
 
     service.release(_release())
@@ -372,6 +389,7 @@ def test_the_decision_is_recorded_before_the_controller_is_called(tmp_path: Path
         FailingAdapter(),
         clock=lambda: NOW + timedelta(minutes=5),
         verifications=_lookup(),
+        traces=_traces(),
     )
     service.release(_release())
 
@@ -397,6 +415,7 @@ def test_validated_evidence_records_only_confirmed_verification_runs(tmp_path: P
         InMemoryDeploymentAdapter(),
         clock=lambda: NOW + timedelta(minutes=5),
         verifications=_lookup(),
+        traces=_traces(),
     )
     service.release(_release())
 
@@ -413,3 +432,86 @@ def test_validated_evidence_records_only_confirmed_verification_runs(tmp_path: P
     assert validated.verification_run_ids == ("verification-1",)
     assert validated.metadata["verification_runs_claimed"] == 2
     assert validated.metadata["verification_runs_confirmed"] == 1
+
+
+@pytest.mark.parametrize(
+    ("traces", "reason"),
+    [
+        (InMemoryTraceLookup(), "trace was never recorded"),
+        (_traces(analysis_run_id="other-run"), "trace belongs to another analysis run"),
+        (_traces(commit_sha="c" * 40), "trace observed a different commit"),
+        (_traces(observation_count=0), "trace carries no observation"),
+    ],
+)
+def test_promotion_requires_a_trace_this_release_actually_recorded(
+    tmp_path: Path, traces: InMemoryTraceLookup, reason: str
+) -> None:
+    adapter = InMemoryDeploymentAdapter()
+    service = DeploymentService(
+        DeploymentJournal(tmp_path),
+        adapter,
+        clock=lambda: NOW + timedelta(minutes=5),
+        verifications=_lookup(),
+        traces=traces,
+    )
+
+    service.release(_release())
+    result = service.observe(
+        release_id="release-1",
+        window=_window(),
+        observation=_observation(),
+        policy=_policy(),
+        verification_run_ids=("verification-1",),
+        trace_ids=("0" * 32,),
+    )
+
+    assert result.status == "paused", reason
+    assert ("promote", "release-1") not in adapter.actions
+
+
+def test_a_service_without_a_trace_lookup_can_never_promote(tmp_path: Path) -> None:
+    adapter = InMemoryDeploymentAdapter()
+    service = DeploymentService(
+        DeploymentJournal(tmp_path),
+        adapter,
+        clock=lambda: NOW + timedelta(minutes=5),
+        verifications=_lookup(),
+    )
+
+    service.release(_release())
+    result = service.observe(
+        release_id="release-1",
+        window=_window(),
+        observation=_observation(),
+        policy=_policy(),
+        verification_run_ids=("verification-1",),
+        trace_ids=("0" * 32,),
+    )
+
+    assert result.status == "paused"
+    assert ("promote", "release-1") not in adapter.actions
+
+
+def test_observed_evidence_records_only_confirmed_traces(tmp_path: Path) -> None:
+    service = DeploymentService(
+        DeploymentJournal(tmp_path),
+        InMemoryDeploymentAdapter(),
+        clock=lambda: NOW + timedelta(minutes=5),
+        verifications=_lookup(),
+        traces=_traces(),
+    )
+    service.release(_release())
+
+    result = service.observe(
+        release_id="release-1",
+        window=_window(),
+        observation=_observation(),
+        policy=_policy(),
+        verification_run_ids=("verification-1",),
+        trace_ids=("0" * 32, "f" * 32),
+    )
+
+    observed = next(item for item in result.evidence if item.event == "observed")
+    assert observed.trace_ids == ("0" * 32,)
+    assert observed.metadata["traces_claimed"] == 2
+    assert observed.metadata["traces_confirmed"] == 1

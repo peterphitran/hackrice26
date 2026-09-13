@@ -9,7 +9,9 @@ from lou.deployment import (
     DeploymentJournal,
     DeploymentService,
     InMemoryDeploymentAdapter,
+    InMemoryTraceLookup,
     InMemoryVerificationLookup,
+    TraceFact,
     VerificationFact,
 )
 
@@ -19,11 +21,14 @@ def test_deploy_command_outputs_a_promoted_staging_release(
 ) -> None:
     lookup = InMemoryVerificationLookup()
     lookup.record(VerificationFact("verification-1", "run-1", "a" * 40, "passed"))
+    traces = InMemoryTraceLookup()
+    traces.record(TraceFact("0" * 32, "run-1", "a" * 40, 12))
     service = DeploymentService(
         DeploymentJournal(tmp_path),
         InMemoryDeploymentAdapter(),
         clock=lambda: datetime(2026, 9, 13, tzinfo=UTC),
         verifications=lookup,
+        traces=traces,
     )
     monkeypatch.setattr(cli, "_deployment_service", lambda: service)
 

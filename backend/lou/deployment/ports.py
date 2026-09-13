@@ -34,3 +34,19 @@ class VerificationLookupPort(Protocol):
     """Read recorded verification runs so a release cannot assert its own health."""
 
     def get(self, verification_run_id: str) -> VerificationFact | None: ...
+
+
+@dataclass(frozen=True)
+class TraceFact:
+    """The recorded identity of one runtime trace observed during an analysis run."""
+
+    trace_id: str
+    analysis_run_id: str
+    commit_sha: str
+    observation_count: int
+
+
+class TraceLookupPort(Protocol):
+    """Read recorded traces so telemetry cannot be attributed to an invented trace."""
+
+    def get(self, trace_id: str) -> TraceFact | None: ...

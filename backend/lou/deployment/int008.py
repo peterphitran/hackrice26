@@ -16,7 +16,9 @@ from lou.deployment import (
     DeploymentJournal,
     DeploymentService,
     InMemoryDeploymentAdapter,
+    InMemoryTraceLookup,
     InMemoryVerificationLookup,
+    TraceFact,
     VerificationFact,
 )
 
@@ -36,8 +38,13 @@ def _healthy_staging() -> bool:
 def _rehearse(root: Path) -> dict[str, object]:
     adapter = InMemoryDeploymentAdapter()
     lookup = InMemoryVerificationLookup()
+    traces = InMemoryTraceLookup()
     service = DeploymentService(
-        DeploymentJournal(root), adapter, clock=lambda: _NOW, verifications=lookup
+        DeploymentJournal(root),
+        adapter,
+        clock=lambda: _NOW,
+        verifications=lookup,
+        traces=traces,
     )
     policy = SLOPolicy(
         policy_revision="int008-v1",
@@ -71,6 +78,7 @@ def _rehearse(root: Path) -> dict[str, object]:
     lookup.record(
         VerificationFact("verification-good", good.analysis_run_id, good.commit_sha, "passed")
     )
+    traces.record(TraceFact("0" * 32, good.analysis_run_id, good.commit_sha, 12))
     service.release(good)
     promoted = service.observe(
         release_id=good.release_id,
@@ -93,6 +101,7 @@ def _rehearse(root: Path) -> dict[str, object]:
     lookup.record(
         VerificationFact("verification-bad", bad.analysis_run_id, bad.commit_sha, "passed")
     )
+    traces.record(TraceFact("1" * 32, bad.analysis_run_id, bad.commit_sha, 12))
     service.release(bad)
     rolled_back = service.observe(
         release_id=bad.release_id,

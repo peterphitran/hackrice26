@@ -35,9 +35,10 @@ from lou.core.settings import Settings, get_settings
 from lou.core.version import APP_VERSION
 from lou.deployment import (
     DeploymentConflictError,
-    DeploymentJournal,
     DeploymentService,
     InMemoryDeploymentAdapter,
+    SqlAlchemyDeploymentJournal,
+    SqlAlchemyTraceLookup,
     SqlAlchemyVerificationLookup,
 )
 from lou.persistence.database import create_session_factory
@@ -608,10 +609,12 @@ def _publication_response(result: object) -> PublicationResponse:
 
 
 def _deployment_service(settings: Settings) -> DeploymentService:
+    sessions = create_session_factory(settings)
     return DeploymentService(
-        DeploymentJournal(settings.artifact_root),
+        SqlAlchemyDeploymentJournal(sessions),
         InMemoryDeploymentAdapter(),
-        verifications=SqlAlchemyVerificationLookup(create_session_factory(settings)),
+        verifications=SqlAlchemyVerificationLookup(sessions),
+        traces=SqlAlchemyTraceLookup(sessions),
     )
 
 
