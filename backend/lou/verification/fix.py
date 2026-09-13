@@ -56,8 +56,16 @@ def _git(
 
 
 def _protected_path(path: str) -> bool:
+    """Match test and workload definitions regardless of case or naming convention."""
     pure = PurePosixPath(path)
-    return "tests" in pure.parts or pure.name.startswith("test_") or "loadtests" in pure.parts
+    parts = {part.lower() for part in pure.parts}
+    name = pure.name.lower()
+    return (
+        bool(parts & {"test", "tests", "loadtest", "loadtests"})
+        or name.startswith("test_")
+        or name.endswith("_test.py")
+        or name == "conftest.py"
+    )
 
 
 class FixVerifier:
@@ -179,7 +187,11 @@ class FixVerifier:
                     )
                 except Exception as error:
                     return self._result(
-                        patch, "inconclusive", f"execution_failed:{type(error).__name__}", fix_sha
+                        patch,
+                        "inconclusive",
+                        f"execution_failed:{type(error).__name__}",
+                        fix_sha,
+                        detail=str(error),
                     )
                 try:
                     return self._compare(patch, observations, fix_sha, attempt_dir)
@@ -189,6 +201,7 @@ class FixVerifier:
                         "inconclusive",
                         f"comparison_failed:{type(error).__name__}",
                         fix_sha,
+                        detail=str(error),
                     )
             finally:
                 _git(source, "worktree", "remove", "--force", str(worktree))
@@ -256,6 +269,7 @@ class FixVerifier:
         *,
         metrics: dict[str, float] | None = None,
         artifact_uri: str | None = None,
+        detail: str | None = None,
     ) -> dict[str, VerificationResult]:
         actual_hash = sha256(patch.patch_diff.encode("utf-8")).hexdigest()
         return {
@@ -273,6 +287,10 @@ class FixVerifier:
                     "verification_attempt_id": patch.verification_attempt_id,
                     "classification": reason,
                     "workloads_rerun": fix_sha is not None and bool(metrics),
+                    # commit_sha must be a string, so it falls back to the candidate
+                    # commit when no fix commit was ever created; this says which it is.
+                    "fix_commit_sha": fix_sha,
+                    "failure_detail": detail,
                 },
             )
             for item in self.selections

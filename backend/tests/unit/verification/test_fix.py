@@ -8,6 +8,8 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Literal
 
+import pytest
+
 from contracts import AnalysisJob, PatchArtifact, VerificationResult, WorkloadSelection
 from lou.agents.orchestration import ValidatedPatch
 from lou.agents.patch_validation import validate_patch
@@ -17,7 +19,7 @@ from lou.loadtest import K6Experiment, K6Sample, aggregate
 from lou.policies import AutonomyPolicy
 from lou.scoring import DebtInputs, RemediationInputs
 from lou.verification.checks import PhaseCheck
-from lou.verification.fix import FixVerifier, PhaseObservations
+from lou.verification.fix import FixVerifier, PhaseObservations, _protected_path
 
 FIXTURE = Path(__file__).parents[3] / "fixtures" / "broken-store"
 COMMAND = (sys.executable, "-m", "pytest", "-q", "tests/test_checkout.py")
@@ -258,3 +260,38 @@ def test_fix_identity_fields_match_decision_contract(tmp_path: Path) -> None:
             "evidence_identity",
         )
     )
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "tests/test_checkout.py",
+        "test/test_checkout.py",
+        "Tests/test_checkout.py",
+        "store/checkout_test.py",
+        "tests/conftest.py",
+        "loadtests/checkout.js",
+        "loadtest/checkout.js",
+    ],
+)
+def test_protected_paths_cover_case_and_naming_variants(path: str) -> None:
+    assert _protected_path(path)
+
+
+@pytest.mark.parametrize("path", ["store/app.py", "store/testing_utils.py", "docs/tests.md"])
+def test_unprotected_paths_are_not_blocked(path: str) -> None:
+    assert not _protected_path(path)
+
+
+def test_failed_result_does_not_claim_a_fix_commit(tmp_path: Path) -> None:
+    repo, base, candidate, reverse = _setup(tmp_path)
+    wrong = reverse.replace("SELECT price_cents", "SELECT wrong_price_cents", 1)
+    request = _request(repo, wrong, candidate, base)
+    runner = RecordingRunner()
+
+    result = _verifier(tmp_path, base, candidate, runner).verify(request)
+
+    assert result.status == "failed"
+    assert result.metadata["fix_commit_sha"] is None
+    assert result.metadata["workloads_rerun"] is False
+    assert runner.calls == 0
