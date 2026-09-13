@@ -170,6 +170,15 @@ def test_duplicate_declarations_and_dotted_paths_have_distinct_keys(git_reposito
     assert result.changed_symbols == ["a%2Eb.same", "a%2Eb.same#2", "a.b.same", "a.b.same#2"]
 
 
+def test_path_stem_handles_a_filename_made_of_dots(git_repository: Path) -> None:
+    base = _commit(git_repository)
+    (git_repository / "..py").write_text("def found():\n    pass\n")
+    result = _extract(git_repository, base, _commit(git_repository))
+
+    assert result.changed_symbols == ["%2E.found"]
+    assert result.completeness == 1
+
+
 @pytest.mark.parametrize("name", ["odd [*]? name\t\n.py", ":(glob)*.py", "--source.py"])
 def test_source_paths_are_literal(git_repository: Path, name: str) -> None:
     base = _commit(git_repository)
@@ -282,7 +291,25 @@ def test_snapshot_limit_is_deterministic(
     assert result.changed_symbols == ["a.found", "b.found"]
     assert result.completeness == pytest.approx(2 / 3)
     assert result.metadata["symbol_extraction"]["diagnostics"] == [
-        {"path": "c.py", "phase": "candidate", "code": "snapshot_limit"}
+        {"code": "snapshot_limit", "skipped_snapshots": "1"}
+    ]
+
+
+def test_snapshot_limit_uses_one_bounded_diagnostic(
+    git_repository: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sha = _commit(git_repository)
+    change = _change(git_repository, sha, sha)
+    change.added_files = [f"missing_{index:04}.py" for index in range(1000)]
+    monkeypatch.setattr(symbols_module, "MAX_FILE_SNAPSHOTS", 2)
+
+    result = extract_changed_symbols(repository_path=git_repository, change=change)
+
+    assert result.completeness == 0
+    assert result.metadata["symbol_extraction"]["diagnostics"] == [
+        {"path": "missing_0000.py", "phase": "candidate", "code": "missing_path"},
+        {"path": "missing_0001.py", "phase": "candidate", "code": "missing_path"},
+        {"code": "snapshot_limit", "skipped_snapshots": "998"},
     ]
 
 
@@ -321,6 +348,48 @@ def test_parenthesized_decorator_includes_opening_line(git_repository: Path) -> 
     assert all(s["start_line"] == 1 for s in result.metadata["symbol_extraction"]["symbols"])
 
 
+@pytest.mark.parametrize(
+    ("before", "after", "expected"),
+    [
+        (
+            "def run():\n    pass\n    # before\n",
+            "def run():\n    pass\n    # after\n",
+            "source.run",
+        ),
+        (
+            "class Store:\n    VALUE = 1\n    # before\n",
+            "class Store:\n    VALUE = 1\n    # after\n",
+            "source.Store",
+        ),
+        (
+            "class Store:\n    def run(self):\n        pass\n    # before\n",
+            "class Store:\n    def run(self):\n        pass\n    # after\n",
+            "source.Store",
+        ),
+    ],
+)
+def test_trailing_indented_comment_belongs_to_its_lexical_scope(
+    git_repository: Path, before: str, after: str, expected: str
+) -> None:
+    source = git_repository / "source.py"
+    source.write_text(before)
+    base = _commit(git_repository)
+    source.write_text(after)
+    result = _extract(git_repository, base, _commit(git_repository))
+
+    assert result.changed_symbols == [expected]
+
+
+def test_mixed_tab_comment_indentation_matches_python_scope(git_repository: Path) -> None:
+    source = git_repository / "source.py"
+    source.write_text("class C:\n\tdef run(self):\n\t\treturn 1\n        # before\n")
+    base = _commit(git_repository)
+    source.write_text(source.read_text().replace("# before", "# after"))
+    result = _extract(git_repository, base, _commit(git_repository))
+
+    assert result.changed_symbols == ["source.C"]
+
+
 def test_encoding_that_changes_line_count_is_incomplete(git_repository: Path) -> None:
     base = _commit(git_repository)
     (git_repository / "source.py").write_bytes(b"# coding: utf-7\ndef run():+AAo-    return 1\n")
@@ -345,6 +414,17 @@ def test_extraction_requires_immutable_commits(git_repository: Path) -> None:
     sha = _commit(git_repository)
     change = _change(git_repository, sha, sha)
     change.base_commit_sha = "HEAD"
+    with pytest.raises(InvalidCommitError):
+        extract_changed_symbols(repository_path=git_repository, change=change)
+
+
+def test_extraction_rejects_annotated_tag_object_id(git_repository: Path) -> None:
+    _commit(git_repository)
+    _git(git_repository, "tag", "-a", "release", "-m", "release")
+    tag_object = _git(git_repository, "rev-parse", "release^{tag}")
+    change = _change(git_repository, "HEAD", "HEAD")
+    change.base_commit_sha = tag_object
+
     with pytest.raises(InvalidCommitError):
         extract_changed_symbols(repository_path=git_repository, change=change)
 

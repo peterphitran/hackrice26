@@ -30,7 +30,7 @@ No graph, workload selection, execution, or platform wiring is performed here.
 ## Symbols and ranges
 
 `changed_symbols` is a sorted, unique list of keys. Keys combine the repository-relative
-Python path (without `.py`) with lexical class/function names, such as
+Python path (with the final `.py` removed) with lexical class/function names, such as
 `store.app.Store.checkout` and `store.app.outer.inner`. Path components are percent
 encoded, including literal dots, before joining with dots; `a.b.py` and `a/b.py`
 therefore remain distinct. `__init__` remains an explicit component. Repeated
@@ -42,9 +42,11 @@ Details live under `metadata["symbol_extraction"]` with `schema_version: "1"`:
 - `symbols`: records with `key`, `kind` (`function`, `method`, `class`, or `module`),
   `phase` (`baseline` or `candidate`), repository-relative `path`, and inclusive,
   one-based `start_line`/`end_line`. Ranges include decorators and exclude trailing
-  blank lines. Async definitions use the same function/method kinds.
-- `diagnostics`: source-free records containing `path`, `phase`, and a stable error
-  `code` for each skipped snapshot.
+  blank lines except those before a trailing indented comment. Trailing comments at
+  the definition suite's indentation depth are included. Async definitions use the
+  same function/method kinds.
+- `diagnostics`: source-free records normally containing `path`, `phase`, and a stable
+  error `code`. Snapshots beyond the processing limit use one aggregate record.
 - `expected_snapshots`, `completed_snapshots`, `max_blob_bytes`, and
   `max_file_snapshots`: extraction accounting and configured module limits.
 
@@ -70,14 +72,22 @@ Syntax errors (including syntax unsupported by the running Python interpreter),
 encoding errors, bare-CR line endings, missing paths, unsupported objects, and
 exceeded limits lower completeness. LF and CRLF files and Python encoding cookies
 are supported when decoding preserves Git's LF line count. When one side cannot
-be extracted, all scopes from its available
-counterpart are conservatively retained. Empty source files contain no symbols.
+be extracted, all scopes from its available counterpart are conservatively retained.
+Empty source files contain no symbols.
 
 RI-002 completeness is the input completeness multiplied by completed/expected
 snapshots; an empty comparison preserves input completeness. Thus an empty symbol
 list with completeness below one is not evidence that nothing changed. Repository,
 commit, and Git execution failures use existing typed errors and abort the call.
 Diagnostics contain neither source snippets nor raw command output.
+
+RI-001 fixes the rename threshold and limit, diff algorithm, indentation heuristic,
+and text treatment. It disables external diff and text-conversion drivers, and
+sanitizes inherited repository-selection, pathspec, and diff environment options.
+This keeps file classification reproducible and prevents repository attributes from
+executing a configured diff helper. Repository discovery must also resolve to the
+same directory as the nearest `.git` marker, preventing nested repositories from
+redirecting analysis to an ancestor worktree.
 
 The checkout example and exact phase ranges are tested in
 `backend/tests/unit/repository/fixtures/checkout_symbols.json`. Shared version-one

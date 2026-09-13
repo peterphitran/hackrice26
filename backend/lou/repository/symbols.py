@@ -63,7 +63,8 @@ def extract_changed_symbols(
     for sha, role in commits:
         if _OBJECT_ID_PATTERN.fullmatch(sha) is None:
             raise InvalidCommitError(root, sha, role)
-        _resolve_commit(root, sha, role)
+        if _resolve_commit(root, sha, role) != sha:
+            raise InvalidCommitError(root, sha, role)
 
     pairs: list[tuple[str | None, str | None]] = [
         *((None, path) for path in change.added_files),
@@ -72,19 +73,11 @@ def extract_changed_symbols(
         *change.renamed_files.items(),
     ]
     pairs = sorted(set(pairs), key=lambda pair: (pair[0] or "", pair[1] or ""))
-    for pair in pairs:
-        for path in pair:
-            if path is not None:
-                try:
-                    _decode_path(path.encode("utf-8"))
-                except UnicodeError as error:
-                    raise GitExecutionError(
-                        "validate source path", None, "Invalid UTF-8"
-                    ) from error
     expected = sum(path is not None for pair in pairs for path in pair)
     attempted = completed = 0
     selected: set[_Symbol] = set()
     diagnostics: list[dict[str, str]] = []
+    limit_reached = False
 
     for old_path, new_path in pairs:
         snapshots: list[_Snapshot | None] = []
@@ -95,10 +88,18 @@ def extract_changed_symbols(
         for path, sha, phase in sides:
             snapshot = None
             if path is not None:
+                if attempted >= MAX_FILE_SNAPSHOTS:
+                    limit_reached = True
+                    snapshots.append(None)
+                    continue
                 attempted += 1
                 try:
-                    if attempted > MAX_FILE_SNAPSHOTS:
-                        raise _Incomplete("snapshot_limit")
+                    try:
+                        _decode_path(path.encode("utf-8"))
+                    except UnicodeError as error:
+                        raise GitExecutionError(
+                            "validate source path", None, "Invalid UTF-8"
+                        ) from error
                     snapshot = _read_snapshot(root, sha, path, phase)
                     completed += 1
                 except _Incomplete as error:
@@ -119,6 +120,13 @@ def extract_changed_symbols(
                 if snapshot is not None:
                     selected.update(snapshot.symbols)
                     selected.update(snapshot.owners[1:])
+        if limit_reached:
+            break
+
+    if attempted < expected:
+        diagnostics.append(
+            {"code": "snapshot_limit", "skipped_snapshots": str(expected - attempted)}
+        )
 
     result = change.model_copy(deep=True)
     result.changed_symbols = sorted({symbol.key for symbol in selected})
@@ -190,10 +198,9 @@ def _index_symbols(
     tree: ast.Module, source: str, path: str, phase: _Phase
 ) -> tuple[list[_Symbol], list[_Symbol]]:
     # Escape literal dots in path components so a.b.py cannot collide with a/b.py.
-    module = ".".join(
-        quote(part, safe="").replace(".", "%2E")
-        for part in PurePosixPath(path).with_suffix("").parts
-    )
+    path_parts = list(PurePosixPath(path).parts)
+    path_parts[-1] = path_parts[-1][:-3]
+    module = ".".join(quote(part, safe="").replace(".", "%2E") for part in path_parts)
     line_count = source.count("\n") + bool(source and not source.endswith("\n"))
     module_symbol = _Symbol(f"{module}.<module>", "module", phase, path, 1, max(1, line_count))
     owners = [module_symbol] * (line_count + 1)
@@ -217,7 +224,11 @@ def _index_symbols(
                 # Parenthesized decorators may start before their AST expression.
                 while start > 1 and not source_lines[start - 1].lstrip().startswith("@"):
                     start -= 1
-            end = node.end_lineno or node.lineno
+            end = _extend_through_indented_comments(
+                node.end_lineno or node.lineno,
+                _line_indentation(source_lines[node.lineno - 1]),
+                source_lines,
+            )
             symbol = _Symbol(key, kind, phase, path, start, end)
             symbols.append(symbol)
             owners[start : end + 1] = [symbol] * (end - start + 1)
@@ -226,6 +237,40 @@ def _index_symbols(
             (child, scope, in_class) for child in reversed(list(ast.iter_child_nodes(node)))
         )
     return symbols, owners
+
+
+def _extend_through_indented_comments(
+    end: int, definition_indent: int, source_lines: list[str]
+) -> int:
+    """Include trailing comments that remain lexically inside a definition suite."""
+    extended = end
+    for line_number in range(end + 1, len(source_lines) + 1):
+        line = source_lines[line_number - 1]
+        stripped = line.lstrip(" \t\f")
+        if not stripped:
+            continue
+        if not stripped.startswith("#"):
+            break
+        indentation = _line_indentation(line)
+        if indentation <= definition_indent:
+            break
+        extended = line_number
+    return extended
+
+
+def _line_indentation(line: str) -> int:
+    """Return the indentation column using Python's tab and form-feed rules."""
+    column = 0
+    for character in line:
+        if character == " ":
+            column += 1
+        elif character == "\t":
+            column = (column // 8 + 1) * 8
+        elif character == "\f":
+            column = 0
+        else:
+            break
+    return column
 
 
 def _changed_lines(
