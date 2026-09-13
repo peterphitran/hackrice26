@@ -53,13 +53,13 @@ Do not implement sandbox commands, agent prompts, scoring policy, persistence, o
 
 - [x] RI-003: create only the node and edge types required by the demo.
 - [x] Include confidence and unresolved relationships in graph extraction.
-- [ ] RI-004: traverse callers, callees, tests, endpoints, data dependencies, and scenarios.
-- [ ] Enforce depth and node-count budgets.
+- [x] RI-004: traverse callers, callees, tests, endpoints, data dependencies, and scenarios.
+- [x] Enforce depth and node-count budgets.
 
 ### Phase 3 — Selection and findings
 
-- [ ] RI-005: select checkout pytest and k6 workloads from checked-in definitions.
-- [ ] Provide a deterministic fallback when graph extraction is incomplete.
+- [x] RI-005: select checkout pytest and k6 workloads from checked-in definitions.
+- [x] Provide a deterministic fallback when graph extraction is incomplete.
 - [x] RI-006: normalize one static analyzer without coupling runtime verification to it.
 
 ### Phase 4 — Reproducibility
@@ -130,8 +130,8 @@ normalized findings/evidence
 ## Personal Definition of Done
 
 - [ ] `checkout()` maps to the expected symbol key.
-- [ ] The graph connects checkout to its test, endpoint, data dependency, and load scenario.
-- [ ] The correct workload is selected from identical input every time.
+- [x] The graph connects checkout to its test, endpoint, data dependency, and load scenario.
+- [x] The correct workload is selected from identical input every time.
 - [ ] Broken or unsupported syntax lowers completeness without crashing the run.
 - [ ] Unit tests cover empty diffs, renames, duplicate method names, and traversal limits.
 - [ ] Downstream engineers can develop using your committed JSON fixtures.

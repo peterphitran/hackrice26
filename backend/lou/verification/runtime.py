@@ -238,7 +238,12 @@ class DockerWorkloadRunner:
                     timeout_seconds=timeout,
                     executor=execute_check,
                 )
-                load_selection = next(item for item in selections if item.workload_type == "k6")
+                load_selections = [item for item in selections if item.workload_type == "k6"]
+                if len(load_selections) > 1:
+                    raise ValueError("only one k6 workload is supported per finalized plan")
+                if not load_selections:
+                    return PhaseObservations(checks, None)
+                load_selection = load_selections[0]
                 app_name = f"lou-ev007-app-{uuid4().hex[:12]}"
                 _start_app(image, app_name, limits, self.database_url, artifact_dir / "app")
 

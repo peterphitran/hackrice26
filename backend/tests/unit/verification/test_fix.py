@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from collections.abc import Mapping, Sequence
 from hashlib import sha256
 from pathlib import Path
 from typing import Literal
@@ -142,6 +143,29 @@ class FailingRunner:
         raise self.error
 
 
+class SingleTypeRunner:
+    def __init__(self, workload_type: Literal["pytest", "k6"]) -> None:
+        self.workload_type = workload_type
+        self.calls = 0
+
+    def run(
+        self,
+        *,
+        repository: Path,
+        commit_sha: str,
+        selections: Sequence[WorkloadSelection],
+        commands: Mapping[str, Sequence[str]],
+        job: AnalysisJob,
+        artifact_dir: Path,
+    ) -> PhaseObservations:
+        del repository, selections, commands, job, artifact_dir
+        self.calls += 1
+        complete = _observations("fix", commit_sha, 2, 20)
+        if self.workload_type == "pytest":
+            return PhaseObservations(complete.checks, None)
+        return PhaseObservations((), complete.load)
+
+
 def _setup(tmp_path: Path) -> tuple[Path, str, str, str]:
     repo = tmp_path / "broken-store"
     subprocess.run(
@@ -201,6 +225,70 @@ def test_real_reverse_patch_applies_and_verifies_in_fresh_worktree(tmp_path: Pat
     assert pytest_result.metadata["verification_attempt_id"] == request.verification_attempt_id
     assert _git(repo, "rev-parse", "HEAD") == candidate
     assert "for product_id, quantity in cart:" in (repo / "store/app.py").read_text()
+
+
+@pytest.mark.parametrize("workload_type", ["pytest", "k6"])
+def test_fix_verifier_supports_single_type_finalized_plan(
+    tmp_path: Path, workload_type: Literal["pytest", "k6"]
+) -> None:
+    repo, base, candidate, reverse = _setup(tmp_path)
+    request = _request(repo, reverse, candidate, base)
+    workload_id = f"checkout-{workload_type}"
+    selection = WorkloadSelection(
+        workload_id=workload_id,
+        workload_type=workload_type,
+        definition_path=(
+            "tests/test_checkout.py" if workload_type == "pytest" else "loadtests/checkout.js"
+        ),
+        phase="candidate",
+        reason="finalized adaptive plan",
+        confidence=1,
+    )
+    baseline_complete = _observations("baseline", base, 2, 20)
+    candidate_complete = _observations("candidate", candidate, 51, 50)
+    baseline = PhaseObservations(
+        baseline_complete.checks if workload_type == "pytest" else (),
+        baseline_complete.load if workload_type == "k6" else None,
+    )
+    candidate_observations = PhaseObservations(
+        candidate_complete.checks if workload_type == "pytest" else (),
+        candidate_complete.load if workload_type == "k6" else None,
+    )
+    job = request.analysis_job.model_copy(
+        update={"verification_plan": {"workloads": [workload_id]}}
+    )
+    request = request.model_copy(update={"analysis_job": job, "workload_id": workload_id})
+    runner = SingleTypeRunner(workload_type)
+    verifier = FixVerifier(
+        baseline=baseline,
+        candidate=candidate_observations,
+        selections=(selection,),
+        commands={"checkout-pytest": COMMAND} if workload_type == "pytest" else {},
+        runner=runner,
+        artifact_root=tmp_path / "single-type-artifacts",
+    )
+
+    result = verifier.verify(request)
+
+    assert runner.calls == 1
+    assert result.metadata["workloads_rerun"] is True
+    assert result.metadata["classification"] in {"improvement", "no_material_change"}
+
+
+def test_fix_verifier_rejects_reordered_finalized_plan(tmp_path: Path) -> None:
+    repo, base, candidate, reverse = _setup(tmp_path)
+    request = _request(repo, reverse, candidate, base)
+    job = request.analysis_job.model_copy(
+        update={"verification_plan": {"workloads": ["checkout-k6", "checkout-pytest"]}}
+    )
+    request = request.model_copy(update={"analysis_job": job})
+    runner = RecordingRunner()
+
+    result = _verifier(tmp_path, base, candidate, runner).verify(request)
+
+    assert result.status == "inconclusive"
+    assert result.metadata["classification"] == "verification_plan_mismatch"
+    assert runner.calls == 0
 
 
 def test_nonapplicable_patch_is_failed_before_workloads(tmp_path: Path) -> None:

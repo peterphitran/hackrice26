@@ -149,6 +149,30 @@ class _Runner:
         return _observations(phase, commit_sha, 2 if phase == "baseline" else 51)
 
 
+@dataclass
+class _AdaptiveRunner:
+    plans: list[tuple[str, ...]] = field(default_factory=list)
+
+    def run_phase(
+        self,
+        phase: str,
+        *,
+        repository: Path,
+        commit_sha: str,
+        selections: tuple[WorkloadSelection, ...],
+        commands: dict[str, tuple[str, ...]],
+        job: object,
+        artifact_dir: Path,
+    ) -> PhaseObservations:
+        del repository, commands, job, artifact_dir
+        self.plans.append(tuple(item.workload_id for item in selections))
+        complete = _observations(phase, commit_sha, 2 if phase == "baseline" else 51)
+        includes_pytest = any(item.workload_type == "pytest" for item in selections)
+        checks = complete.checks if includes_pytest else ()
+        load = complete.load if any(item.workload_type == "k6" for item in selections) else None
+        return PhaseObservations(checks, load)
+
+
 def test_fixture_adapter_measures_disposable_worktrees_and_classifies_regression(
     fixture_repository: tuple[Path, str, str], tmp_path: Path
 ) -> None:
@@ -170,6 +194,67 @@ def test_fixture_adapter_measures_disposable_worktrees_and_classifies_regression
     assert len(result.findings) == 1
     assert all(not workspace.exists() for workspace in runner.workspaces)
     assert (tmp_path / "artifacts" / "run-live" / "comparison" / "comparison.json").is_file()
+
+
+@pytest.mark.parametrize("selected_type", ["pytest", "k6"])
+def test_fixture_adapter_supports_single_type_finalized_plans(
+    fixture_repository: tuple[Path, str, str], tmp_path: Path, selected_type: str
+) -> None:
+    repository, base, candidate = fixture_repository
+    request = _request(repository, base, candidate)
+    context = RepositoryContext(
+        repository_id="fixture",
+        commit_sha=candidate,
+        selected_workload_ids=["checkout-pytest", "checkout-k6"],
+        selection_reasons={
+            "checkout-pytest": "graph test path",
+            "checkout-k6": "graph load path",
+        },
+        completeness=1,
+    )
+    all_workloads = FixtureWorkloadSelector().select(context)
+    workloads = tuple(item for item in all_workloads if item.workload_type == selected_type)
+    runner = _AdaptiveRunner()
+    verifier = FixtureVerificationAdapter(runner, tmp_path / selected_type)
+
+    baseline = verifier.measure_baseline(request, f"run-{selected_type}", workloads)
+    candidate_result = verifier.measure_candidate(
+        request, f"run-{selected_type}", workloads, baseline
+    )
+
+    expected_ids = tuple(item.workload_id for item in workloads)
+    assert runner.plans == [expected_ids, expected_ids]
+    assert baseline.result.status == "passed"
+    if selected_type == "pytest":
+        assert candidate_result.result.status == "passed"
+        assert candidate_result.result.metadata["runtime_comparison_performed"] is False
+        assert candidate_result.result.metadata["load_workload_status"] == "not_selected"
+    else:
+        assert candidate_result.result.status == "failed"
+        assert candidate_result.result.metadata["runtime_comparison_performed"] is True
+
+
+def test_candidate_rejects_a_different_plan_than_baseline(
+    fixture_repository: tuple[Path, str, str], tmp_path: Path
+) -> None:
+    repository, base, candidate = fixture_repository
+    request = _request(repository, base, candidate)
+    context = RepositoryContext(
+        repository_id="fixture",
+        commit_sha=candidate,
+        selected_workload_ids=["checkout-pytest", "checkout-k6"],
+        selection_reasons={
+            "checkout-pytest": "graph test path",
+            "checkout-k6": "graph load path",
+        },
+        completeness=1,
+    )
+    workloads = FixtureWorkloadSelector().select(context)
+    verifier = FixtureVerificationAdapter(_AdaptiveRunner(), tmp_path / "same-plan")
+    baseline = verifier.measure_baseline(request, "run-same-plan", workloads)
+
+    with pytest.raises(ValueError, match="reuse the finalized baseline plan"):
+        verifier.measure_candidate(request, "run-same-plan", workloads[:1], baseline)
 
 
 def test_fixture_intelligence_selects_only_graph_reached_registry_workloads(
@@ -203,8 +288,12 @@ def test_selector_allows_only_known_configured_fallback_workloads() -> None:
     ]
 
     unknown = context.model_copy(update={"selected_workload_ids": ["unknown"]})
-    with pytest.raises(ValueError, match="unknown workload IDs"):
-        FixtureWorkloadSelector().select(unknown)
+    plan = FixtureWorkloadSelector().plan(unknown)
+    assert [item.workload_id for item in plan.selected] == ["checkout-pytest"]
+    unknown_omitted = any(
+        item.workload_id == "unknown" and item.category == "unregistered" for item in plan.omitted
+    )
+    assert unknown_omitted
 
 
 def test_fixture_decision_defaults_to_report_and_can_recommend_when_policy_qualifies(
