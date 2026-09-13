@@ -25,11 +25,14 @@ from lou.policies import AutonomyPolicy
 from lou.prediction import predict_impact
 from lou.repository import (
     REGISTRY_REVISION,
+    PlanningLimits,
     TraversalLimits,
+    ValidationPlan,
     build_repository_context,
     build_repository_graph,
+    fixture_workload_registry,
     parse_repository_changes,
-    select_fixture_workloads,
+    plan_validation_workloads,
     traverse_repository_impact,
 )
 from lou.repository import fixture_commands as fixture_commands
@@ -65,6 +68,7 @@ class FixtureRepositoryIntelligence:
 
     artifact_root: Path = Path(".lou/artifacts")
     traversal_limits: TraversalLimits = TraversalLimits()
+    planning_limits: PlanningLimits = PlanningLimits()
     fallback_workload_ids: tuple[str, ...] = ()
 
     def inspect(
@@ -90,8 +94,10 @@ class FixtureRepositoryIntelligence:
             commit_sha=change.candidate_commit_sha,
         )
         fallback_workload_ids = self.fallback_workload_ids if snapshot.completeness < 1 else ()
-        selected = _select_fixture_workloads(
+        plan = plan_validation_workloads(
             context,
+            fixture_workload_registry(),
+            limits=self.planning_limits,
             fallback_workload_ids=fallback_workload_ids,
         )
         prediction = predict_impact(
@@ -99,15 +105,15 @@ class FixtureRepositoryIntelligence:
             change=change,
             snapshot=snapshot,
             traversal=traversal,
-            workloads=selected,
+            workloads=plan.selected,
             repository_root=request.repository_path,
         )
         context = context.model_copy(
             update={
-                "selected_workload_ids": [item.workload_id for item in selected],
+                "selected_workload_ids": [item.workload_id for item in plan.selected],
                 "selection_reasons": {
                     **context.selection_reasons,
-                    **{item.workload_id: item.reason for item in selected},
+                    **{item.workload_id: item.reason for item in plan.selected},
                 },
                 "metadata": {
                     **context.metadata,
@@ -116,25 +122,36 @@ class FixtureRepositoryIntelligence:
                     "graph_artifact_uri": snapshot.artifact_uri,
                     "fallback_workload_ids": list(fallback_workload_ids),
                     "impact_prediction": prediction.model_dump(mode="json"),
+                    "validation_plan": plan.payload(),
                 },
             }
         )
         return change, context
 
 
+@dataclass(frozen=True)
 class FixtureWorkloadSelector:
     """Return only registry workloads selected by the fixture context."""
 
-    def select(self, context: RepositoryContext) -> tuple[WorkloadSelection, ...]:
+    planning_limits: PlanningLimits = PlanningLimits()
+
+    def plan(self, context: RepositoryContext) -> ValidationPlan:
+        """Return the full explainable plan while keeping ``select`` compatible."""
+
         raw_fallback_ids = context.metadata.get("fallback_workload_ids", [])
         if not isinstance(raw_fallback_ids, list) or not all(
             isinstance(item, str) for item in raw_fallback_ids
         ):
             raise ValueError("repository context fallback_workload_ids must be a list of strings")
-        return _select_fixture_workloads(
+        return plan_validation_workloads(
             context,
+            fixture_workload_registry(),
+            limits=self.planning_limits,
             fallback_workload_ids=tuple(raw_fallback_ids),
         )
+
+    def select(self, context: RepositoryContext) -> tuple[WorkloadSelection, ...]:
+        return self.plan(context).selected
 
 
 @dataclass
@@ -144,6 +161,7 @@ class FixtureVerificationAdapter:
     runner: PhaseRunner
     artifact_root: Path
     _baselines: dict[str, PhaseObservations] = field(default_factory=dict, init=False)
+    _plans: dict[str, tuple[tuple[str, str, str], ...]] = field(default_factory=dict, init=False)
 
     def measure_baseline(
         self,
@@ -152,6 +170,7 @@ class FixtureVerificationAdapter:
         workloads: tuple[WorkloadSelection, ...],
     ) -> VerificationBundle:
         job = _analysis_job(request, run_id, workloads)
+        self._plans[run_id] = _plan_identity(workloads)
         observations = self._measure("baseline", request, job, workloads)
         self._baselines[run_id] = observations
         return _phase_bundle(
@@ -170,6 +189,8 @@ class FixtureVerificationAdapter:
         baseline: VerificationBundle,
     ) -> VerificationBundle:
         job = _analysis_job(request, run_id, workloads)
+        if self._plans.get(run_id) != _plan_identity(workloads):
+            raise ValueError("candidate verification must reuse the finalized baseline plan")
         baseline_observations = self._baselines.get(run_id)
         if baseline_observations is None:
             raise ValueError("candidate comparison requires its baseline measurement")
@@ -312,14 +333,12 @@ def _observed_debt_inputs(context: RepositoryContext) -> dict[str, float]:
     }
 
 
-def _select_fixture_workloads(
-    context: RepositoryContext,
-    *,
-    fallback_workload_ids: tuple[str, ...] = (),
-) -> tuple[WorkloadSelection, ...]:
-    """Delegate registry resolution to repository intelligence."""
+def _plan_identity(
+    workloads: tuple[WorkloadSelection, ...],
+) -> tuple[tuple[str, str, str], ...]:
+    """Bind all comparison phases to the same ordered registry definitions."""
 
-    return select_fixture_workloads(context, fallback_workload_ids=fallback_workload_ids)
+    return tuple((item.workload_id, item.workload_type, item.definition_path) for item in workloads)
 
 
 def _analysis_job(
@@ -352,22 +371,33 @@ def _phase_bundle(
     observations: PhaseObservations,
     artifact_dir: Path,
 ) -> VerificationBundle:
-    command_failed = observations.load.command_failed or any(
+    load = observations.load
+    command_failed = (load.command_failed if load is not None else False) or any(
         check.outcome == "command_failed" for check in observations.checks
     )
     test_failed = any(check.outcome == "test_failed" for check in observations.checks)
     status = "inconclusive" if command_failed else "failed" if test_failed else "passed"
+    workload_id = (
+        load.workload_id
+        if load is not None
+        else observations.checks[0].workload_id
+        if len(observations.checks) == 1
+        else None
+    )
+    metrics = dict(load.metrics) if load is not None else {}
     artifact_dir.mkdir(parents=True, exist_ok=True)
     payload = {
         "phase": phase,
         "commit_sha": commit_sha,
-        "workload_id": observations.load.workload_id,
+        "workload_id": workload_id,
         "status": status,
-        "metrics": dict(observations.load.metrics),
+        "metrics": metrics,
         "checks": [
             {"workload_id": item.workload_id, "outcome": item.outcome}
             for item in observations.checks
         ],
+        "runtime_comparison_eligible": load is not None,
+        "load_workload_status": "measured" if load is not None else "not_selected",
         "registry_revision": _REGISTRY_REVISION,
     }
     artifact = artifact_dir / "phase-summary.json"
@@ -391,13 +421,15 @@ def _phase_bundle(
         phase=phase,
         commit_sha=commit_sha,
         status=cast(Any, status),
-        workload_id=observations.load.workload_id,
-        metrics=dict(observations.load.metrics),
+        workload_id=workload_id,
+        metrics=metrics,
         evidence_ids=[evidence_id],
         artifact_uri=evidence.artifact_uri,
         metadata={
             "classification": "inconclusive" if status == "inconclusive" else "clean",
             "registry_revision": _REGISTRY_REVISION,
+            "runtime_comparison_performed": False,
+            "load_workload_status": "measured" if load is not None else "not_selected",
         },
     )
     return VerificationBundle(result, (), (evidence,))

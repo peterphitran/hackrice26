@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from contracts import AnalysisJob
 from lou.execution import CommandOutput, CommandResult
 from lou.loadtest import K6Experiment, K6Sample
@@ -159,3 +161,34 @@ def test_noisy_latency_with_equal_query_counts_is_inconclusive(tmp_path: Path) -
 
     assert noisy.verification.status == "inconclusive"
     assert noisy.verification.metadata["excessive_variance"] is True
+
+
+def test_pytest_only_comparison_is_explicitly_non_runtime(tmp_path: Path) -> None:
+    result = compare_candidate(
+        _job(),
+        (_check("baseline", "a" * 40),),
+        (_check("candidate", "b" * 40),),
+        None,
+        None,
+        artifact_dir=tmp_path,
+    )
+
+    assert result.verification.status == "passed"
+    assert result.verification.metrics == {}
+    assert result.verification.workload_id == "checkout-pytest"
+    assert result.verification.metadata["runtime_comparison_performed"] is False
+    assert result.verification.metadata["load_workload_status"] == "not_selected"
+    assert result.evidence.summary["runtime_comparison_performed"] is False
+    assert result.finding is None
+
+
+def test_mismatched_load_selection_cannot_be_compared(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="same finalized load plan"):
+        compare_candidate(
+            _job(),
+            (_check("baseline", "a" * 40),),
+            (_check("candidate", "b" * 40),),
+            _experiment("baseline", "a" * 40, queries=2, p95=20),
+            None,
+            artifact_dir=tmp_path,
+        )

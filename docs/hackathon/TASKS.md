@@ -215,7 +215,7 @@ Acceptance:
 - [x] Records extractor confidence and unresolved relationships.
 - [x] Serializes deterministically to a JSON artifact.
 
-### [ ] RI-004 — Traverse impact from changed symbols
+### [x] RI-004 — Traverse impact from changed symbols
 
 - Priority: P0
 - Owner: Engineer 1
@@ -225,13 +225,13 @@ Acceptance:
 
 Acceptance:
 
-- [ ] Returns direct callers, callees, tests, endpoints, data dependencies, and scenarios.
-- [ ] Uses explicit depth and node-count budgets.
-- [ ] Records why every returned node was selected.
-- [ ] Distinguishes no relationship found from incomplete extraction.
-- [ ] Fixture test confirms `checkout()` reaches the checkout test and workload.
+- [x] Returns direct callers, callees, tests, endpoints, data dependencies, and scenarios.
+- [x] Uses explicit depth and node-count budgets.
+- [x] Records why every returned node was selected.
+- [x] Distinguishes no relationship found from incomplete extraction.
+- [x] Fixture test confirms `checkout()` reaches the checkout test and workload.
 
-### [ ] RI-005 — Select verification workloads
+### [x] RI-005 — Select verification workloads
 
 - Priority: P0
 - Owner: Engineer 1
@@ -241,10 +241,10 @@ Acceptance:
 
 Acceptance:
 
-- [ ] The N+1 candidate selects the checkout pytest and k6 scenarios.
-- [ ] Selection is deterministic for identical graph input.
-- [ ] A configured fallback scenario is returned when the graph is incomplete.
-- [ ] Workload commands come from the checked-in registry, never model-generated shell text.
+- [x] The N+1 candidate selects the checkout pytest and k6 scenarios.
+- [x] Selection is deterministic for identical graph input.
+- [x] A configured fallback scenario is returned when the graph is incomplete.
+- [x] Workload commands come from the checked-in registry, never model-generated shell text.
 
 ### [x] RI-006 — Normalize one static analyzer
 

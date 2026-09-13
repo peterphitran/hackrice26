@@ -21,7 +21,7 @@ from lou.verification.compare import compare_candidate
 @dataclass(frozen=True)
 class PhaseObservations:
     checks: tuple[PhaseCheck, ...]
-    load: K6Experiment
+    load: K6Experiment | None
 
 
 FixStatus = Literal["passed", "failed", "inconclusive"]
@@ -129,30 +129,60 @@ class FixVerifier:
         job = patch.analysis_job
         patch_hash = sha256(patch.patch_diff.encode("utf-8")).hexdigest()
         ids = [item.workload_id for item in self.selections]
+        load_selections = [item for item in self.selections if item.workload_type == "k6"]
         planned = job.verification_plan.get("workloads")
         if (
             patch_hash != patch.patch_artifact.patch_sha256
             or patch.allowed_repository_root.resolve() != Path(job.repository_path).resolve()
             or not isinstance(planned, list)
-            or set(ids) != set(planned)
+            or ids != planned
             or len(ids) != len(set(ids))
-            or sum(item.workload_type == "k6" for item in self.selections) != 1
+            or len(load_selections) > 1
             or any(item.workload_type not in {"pytest", "k6"} for item in self.selections)
         ):
             return self._result(patch, "inconclusive", "verification_plan_mismatch", None)
-        expected_checks = {check.workload_id: check.arguments for check in self.candidate.checks}
-        if (
-            any(
-                item.workload_type == "pytest"
-                and tuple(self.commands.get(item.workload_id, ()))
-                != expected_checks.get(item.workload_id)
-                for item in self.selections
+        expected_check_ids = {
+            item.workload_id for item in self.selections if item.workload_type != "k6"
+        }
+        baseline_checks = {check.workload_id: check.arguments for check in self.baseline.checks}
+        candidate_checks = {check.workload_id: check.arguments for check in self.candidate.checks}
+        check_identity_mismatch = any(
+            item.workload_type != "k6"
+            and tuple(self.commands.get(item.workload_id, ()))
+            != candidate_checks.get(item.workload_id)
+            for item in self.selections
+        ) or any(
+            item.workload_type != "k6"
+            and tuple(self.commands.get(item.workload_id, ()))
+            != baseline_checks.get(item.workload_id)
+            for item in self.selections
+        )
+        check_identity_mismatch = check_identity_mismatch or (
+            set(baseline_checks) != expected_check_ids
+            or set(candidate_checks) != expected_check_ids
+            or any(
+                check.phase != "baseline" or check.commit_sha != job.base_commit_sha
+                for check in self.baseline.checks
             )
-            or self.candidate.load.workload_id
-            != next(item.workload_id for item in self.selections if item.workload_type == "k6")
+            or any(
+                check.phase != "candidate" or check.commit_sha != job.candidate_commit_sha
+                for check in self.candidate.checks
+            )
+        )
+        expected_load_id = load_selections[0].workload_id if load_selections else None
+        observed_loads = (self.baseline.load, self.candidate.load)
+        load_identity_mismatch = (
+            any(load is not None for load in observed_loads)
+            if expected_load_id is None
+            else any(load is None for load in observed_loads)
+            or self.baseline.load is None
+            or self.candidate.load is None
+            or self.baseline.load.workload_id != expected_load_id
+            or self.candidate.load.workload_id != expected_load_id
             or self.candidate.load.commit_sha != job.candidate_commit_sha
             or self.baseline.load.commit_sha != job.base_commit_sha
-        ):
+        )
+        if check_identity_mismatch or load_identity_mismatch:
             return self._result(patch, "inconclusive", "workload_identity_mismatch", None)
 
         validation = validate_patch(
@@ -239,12 +269,22 @@ class FixVerifier:
         artifact_dir: Path,
     ) -> dict[str, VerificationResult]:
         job = patch.analysis_job
+        expected_load = next((item for item in self.selections if item.workload_type == "k6"), None)
         if (
-            fix.load.phase != "fix"
-            or fix.load.commit_sha != fix_sha
-            or {check.workload_id for check in fix.checks}
-            != {item.workload_id for item in self.selections if item.workload_type == "pytest"}
+            {check.workload_id for check in fix.checks}
+            != {item.workload_id for item in self.selections if item.workload_type != "k6"}
             or any(check.phase != "fix" or check.commit_sha != fix_sha for check in fix.checks)
+            or (expected_load is None and fix.load is not None)
+            or (expected_load is not None and fix.load is None)
+            or (
+                fix.load is not None
+                and expected_load is not None
+                and (
+                    fix.load.phase != "fix"
+                    or fix.load.commit_sha != fix_sha
+                    or fix.load.workload_id != expected_load.workload_id
+                )
+            )
         ):
             return self._result(patch, "inconclusive", "fix_observation_mismatch", fix_sha)
         baseline_job = job.model_copy(update={"candidate_commit_sha": fix_sha})
@@ -283,6 +323,7 @@ class FixVerifier:
             fix_sha,
             metrics=baseline_to_fix.verification.metrics,
             artifact_uri=baseline_to_fix.verification.artifact_uri,
+            workloads_rerun=True,
         )
 
     def _result(
@@ -295,6 +336,7 @@ class FixVerifier:
         metrics: dict[str, float] | None = None,
         artifact_uri: str | None = None,
         detail: str | None = None,
+        workloads_rerun: bool = False,
     ) -> dict[str, VerificationResult]:
         actual_hash = sha256(patch.patch_diff.encode("utf-8")).hexdigest()
         return {
@@ -311,7 +353,7 @@ class FixVerifier:
                     "patch_sha256": actual_hash,
                     "verification_attempt_id": patch.verification_attempt_id,
                     "classification": reason,
-                    "workloads_rerun": fix_sha is not None and bool(metrics),
+                    "workloads_rerun": workloads_rerun,
                     # commit_sha must be a string, so it falls back to the candidate
                     # commit when no fix commit was ever created; this says which it is.
                     "fix_commit_sha": fix_sha,

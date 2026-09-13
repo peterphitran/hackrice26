@@ -191,6 +191,12 @@ VALIDATED_BY
 
 For a changed symbol, graph traversal selects direct callers, callees, tests, endpoints, database dependencies, and load scenarios. Semantic retrieval may add conceptually similar implementations or past fixes, but it must not displace structurally required context.
 
+Adaptive validation resolves those structural signals through a local checked-in registry. The
+planner orders matching checks by priority, type, and stable ID; enforces workload-count and
+estimated-time budgets; and records every omission. Incomplete graphs may select only explicitly
+configured fallback-eligible entries. Registry command arrays and load configuration are trusted
+code-owned data and are never constructed from repository, graph, user, or model text.
+
 ## Context Bundle
 
 The agent receives a deliberately small bundle:
