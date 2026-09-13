@@ -32,6 +32,11 @@ python -m pytest tests/unit/repository \
   --cov-branch \
   --cov-report=term-missing \
   --cov-fail-under=90
+python -m pytest tests/unit/analyzers \
+  --cov=lou.analyzers \
+  --cov-branch \
+  --cov-report=term-missing \
+  --cov-fail-under=90
 ruff check .
 mypy apps contracts lou tests
 pytest
@@ -41,8 +46,8 @@ lou version
 lou doctor
 ```
 
-The repository-intelligence coverage command is a required gate for RI-001. It fails when
-branch coverage for `lou.repository` falls below 90 percent.
+The repository and analyzer coverage commands are required gates for RI-001 and RI-006. They fail
+when branch coverage for their respective packages falls below 90 percent.
 
 ## Live Fixture Analysis
 
