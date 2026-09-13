@@ -74,6 +74,19 @@ class FixtureRepositoryIntelligence:
     planning_limits: PlanningLimits = PlanningLimits()
     fallback_workload_ids: tuple[str, ...] = ()
 
+    def _fallbacks(self, registry: WorkloadRegistry) -> tuple[str, ...]:
+        """Return the workloads permitted to run when graph extraction is incomplete.
+
+        A repository declares this itself with ``fallback_eligible`` in its manifest.
+        Without it the flag would be inert, because no real repository reaches full
+        graph completeness and every workload would be omitted as incomplete_graph.
+        An explicitly configured list still overrides what the manifest declares.
+        """
+
+        if self.fallback_workload_ids:
+            return self.fallback_workload_ids
+        return tuple(entry.workload_id for entry in registry.entries if entry.fallback_eligible)
+
     def inspect(
         self, request: AnalysisRequest, run_id: str
     ) -> tuple[RepositoryChange, RepositoryContext]:
@@ -96,8 +109,8 @@ class FixtureRepositoryIntelligence:
             repository_id=change.repository_id,
             commit_sha=change.candidate_commit_sha,
         )
-        fallback_workload_ids = self.fallback_workload_ids if snapshot.completeness < 1 else ()
         registry = load_workload_registry(request.repository_path)
+        fallback_workload_ids = self._fallbacks(registry) if snapshot.completeness < 1 else ()
         plan = plan_validation_workloads(
             context,
             registry,

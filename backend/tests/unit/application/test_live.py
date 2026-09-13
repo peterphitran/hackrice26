@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import pytest
@@ -18,7 +18,7 @@ from lou.application.live import (
 )
 from lou.execution import CommandOutput, CommandResult
 from lou.loadtest import K6Experiment, K6Sample
-from lou.repository import fixture_workload_registry
+from lou.repository import build_repository_graph, fixture_workload_registry
 from lou.verification import PhaseCheck, PhaseObservations
 
 FIXTURE_MANIFEST = (
@@ -413,3 +413,30 @@ def test_fixture_decision_defaults_to_report_and_can_recommend_when_policy_quali
     )
     with pytest.raises(ValueError, match="inconclusive evidence"):
         FixtureDecisionAdapter().decide(qualified, "run-decision", baseline, inconclusive)
+
+
+def test_a_declared_fallback_runs_when_graph_extraction_is_incomplete(
+    fixture_repository: tuple[Path, str, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A partial graph must not silently validate nothing.
+
+    No real repository reaches full completeness, so a manifest's fallback_eligible
+    flag has to be what authorizes a workload to run on partial evidence. Without
+    this the planner omits every workload as incomplete_graph.
+    """
+
+    repository, base, candidate = fixture_repository
+    intelligence = FixtureRepositoryIntelligence(tmp_path / "artifacts")
+    real = build_repository_graph
+
+    def partial(**kwargs: object) -> object:
+        snapshot = real(**kwargs)  # type: ignore[arg-type]
+        return replace(snapshot, completeness=0.9)
+
+    monkeypatch.setattr("lou.application.live.build_repository_graph", partial)
+    _, context = intelligence.inspect(_request(repository, base, candidate), "run-fallback")
+
+    plan = context.metadata["validation_plan"]
+    assert plan["state"] == "incomplete_with_fallback"
+    assert [item["workload_id"] for item in plan["selected"]] == ["checkout-pytest", "checkout-k6"]
+    assert plan["confidence"] < 1.0
