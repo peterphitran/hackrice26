@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import subprocess
 import time
 from collections.abc import Callable, Sequence
 from hashlib import sha256
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -19,12 +20,44 @@ from contracts import (
     VerificationResult,
     WorkloadSelection,
 )
-from lou.agents.context import AgentContextBundle, build_context_bundle
+from lou.agents.context import AgentContextBundle, RepositoryText, build_context_bundle
 from lou.agents.patch_validation import PatchValidationResult, validate_patch
 from lou.agents.provider import AgentAdapter, AgentProvider, ProviderRequest, ProviderResponse
 from lou.decision import decide_autonomy
 from lou.policies import AutonomyPolicy
 from lou.scoring import DebtInputs, RemediationInputs
+
+
+def _candidate_source(job: AnalysisJob, finding: Finding) -> tuple[RepositoryText, ...]:
+    """Read the implicated file at the candidate commit as untrusted evidence.
+
+    A provider cannot repair a file it has never seen. Read from the commit rather
+    than the worktree so a dirty checkout cannot change what the agent is shown.
+    Any failure yields no text, which the bundle records as an omission.
+    """
+    path = finding.file_path
+    if not path:
+        return ()
+    pure = PurePosixPath(path)
+    if pure.is_absolute() or ".." in pure.parts or "\\" in path or "\x00" in path:
+        return ()
+    try:
+        completed = subprocess.run(
+            ["git", "-C", job.repository_path, "show", f"{job.candidate_commit_sha}:{path}"],
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ()
+    if completed.returncode != 0:
+        return ()
+    try:
+        text = completed.stdout.decode("utf-8")
+    except UnicodeDecodeError:
+        return ()
+    return (RepositoryText(kind="file_content", path=path, text=text),)
+
 
 Stage = Literal["context", "diagnose", "patch", "validate", "verify", "decide", "stopped"]
 TerminationReason = Literal[
@@ -303,6 +336,7 @@ class RemediationOrchestrator:
                 self.inputs.workloads,
                 self.inputs.expected_patch,
                 live_sources=self.inputs.live_sources,
+                repository_texts=_candidate_source(self.inputs.job, self.inputs.finding),
             )
             state.current_diagnosis = None
             state.current_patch_response = None

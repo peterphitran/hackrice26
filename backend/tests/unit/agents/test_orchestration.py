@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from hashlib import sha256
 from pathlib import Path
 from typing import TypeVar
@@ -27,6 +28,7 @@ from lou.agents import (
     OrchestrationState,
     RemediationOrchestrator,
 )
+from lou.agents.orchestration import _candidate_source
 from lou.agents.provider import ProviderRequest, ProviderResponse
 from lou.policies import AutonomyPolicy
 from lou.scoring import DebtInputs, RemediationInputs
@@ -339,3 +341,83 @@ def test_wall_clock_budget_counts_time_across_resume(
     assert final.termination_reason == "time_budget_exceeded"
     assert final.elapsed_seconds >= 2.0
     assert final.attempt_count == 1
+
+
+def _source_job_and_finding(tmp_path: Path) -> tuple[AnalysisJob, Finding]:
+    root = tmp_path / "broken-store"
+    subprocess.run(
+        [
+            sys.executable,
+            str(
+                Path(__file__).parents[3]
+                / "fixtures"
+                / "broken-store"
+                / "scripts"
+                / "seed_fixture_repo.py"
+            ),
+            str(root),
+        ],
+        check=True,
+        capture_output=True,
+    )
+
+    def rev(name: str) -> str:
+        return subprocess.run(
+            ["git", "-C", str(root), "rev-parse", name],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+    job = AnalysisJob(
+        analysis_run_id="run-source",
+        repository_id="broken-store",
+        repository_path=str(root),
+        base_commit_sha=rev("good"),
+        candidate_commit_sha=rev("n-plus-one"),
+    )
+    finding = Finding(
+        finding_id="finding-source",
+        analysis_run_id="run-source",
+        fingerprint="store.app.Store.checkout:database-query-regression",
+        source="native-ast",
+        category="database-query-regression",
+        severity="high",
+        confidence=0.9,
+        phase="candidate",
+        title="Database call inside a loop",
+        message="N+1",
+        file_path="store/app.py",
+        symbol_key="store.app.Store.checkout",
+    )
+    return job, finding
+
+
+def test_candidate_source_supplies_the_implicated_file(tmp_path: Path) -> None:
+    job, finding = _source_job_and_finding(tmp_path)
+
+    texts = _candidate_source(job, finding)
+
+    assert len(texts) == 1
+    assert texts[0].kind == "file_content"
+    assert texts[0].path == "store/app.py"
+    assert "for product_id, quantity in cart:" in texts[0].text
+
+
+@pytest.mark.parametrize(
+    "file_path", ["../escape.py", "/etc/passwd", "store/does_not_exist.py", None]
+)
+def test_candidate_source_is_silent_when_it_cannot_read(
+    tmp_path: Path, file_path: str | None
+) -> None:
+    job, finding = _source_job_and_finding(tmp_path)
+
+    assert _candidate_source(job, finding.model_copy(update={"file_path": file_path})) == ()
+
+
+def test_candidate_source_is_silent_for_an_unreadable_repository(tmp_path: Path) -> None:
+    job, finding = _source_job_and_finding(tmp_path)
+
+    assert (
+        _candidate_source(job.model_copy(update={"repository_path": "/nonexistent"}), finding) == ()
+    )
