@@ -57,23 +57,26 @@ class SqlAlchemyAnalysisRunRepository(AnalysisRunRepository):
                     raise RunConflictError("deduplication key conflicts with immutable run inputs")
                 return view, True
 
-            record = AnalysisRunRecord(
-                repository_id=value.repository_id,
-                trigger_type=value.trigger_type,
-                base_commit_sha=value.base_commit_sha,
-                candidate_commit_sha=value.candidate_commit_sha,
-                deduplication_key=value.deduplication_key,
-                configuration=value.configuration,
-                toolchain_revision=value.toolchain_revision,
-                policy_revision=value.policy_revision,
-            )
-            session.add(record)
             try:
-                session.flush()
+                # A savepoint confines a duplicate-key race to the attempted insert.
+                # The outer transaction remains usable to read the run created by the
+                # competing request, rather than returning an operational error.
+                with session.begin_nested():
+                    record = AnalysisRunRecord(
+                        repository_id=value.repository_id,
+                        trigger_type=value.trigger_type,
+                        base_commit_sha=value.base_commit_sha,
+                        candidate_commit_sha=value.candidate_commit_sha,
+                        deduplication_key=value.deduplication_key,
+                        configuration=value.configuration,
+                        toolchain_revision=value.toolchain_revision,
+                        policy_revision=value.policy_revision,
+                    )
+                    session.add(record)
+                    session.flush()
             except IntegrityError as error:
                 # Another process may have won the unique-key race. Re-read its row
                 # before translating unrelated integrity failures.
-                session.rollback()
                 existing = session.scalar(
                     select(AnalysisRunRecord).where(
                         AnalysisRunRecord.deduplication_key == value.deduplication_key

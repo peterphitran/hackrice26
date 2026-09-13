@@ -4,14 +4,19 @@ from __future__ import annotations
 
 import importlib.util
 import os
+from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha256
 from pathlib import Path
+from typing import cast
 
 import pytest
+from fastapi.testclient import TestClient
+from httpx import Response as HttpResponse
 from pytest import MonkeyPatch
 from sqlalchemy import select
 from typer.testing import CliRunner
 
+from apps.api.main import create_app
 from apps.cli.main import app
 from lou.application import AnalysisRequest, build_fixture_service
 from lou.core.settings import Settings, get_settings
@@ -141,6 +146,58 @@ def test_live_cli_prints_a_safe_measured_summary(tmp_path: Path, monkeypatch: Mo
     assert '"analysis_run_id"' in result.stdout
     assert '"query_count_delta": 49.0' in result.stdout
     assert "lou_migrator" not in result.stdout
+
+
+@pytest.mark.skipif(
+    os.getenv("RUN_LOU_LIVE_E2E") != "1",
+    reason="set RUN_LOU_LIVE_E2E=1 with Docker, lou-fixture, and migrated lou_test",
+)
+def test_live_api_reuses_a_persisted_run_and_returns_the_canonical_report(tmp_path: Path) -> None:
+    test_url = os.environ["LOU_TEST_DATABASE_URL"]
+    fixture_url = os.environ.get(
+        "LOU_FIXTURE_DATABASE_URL",
+        "postgresql://lou_migrator:lou_migrator@postgres:5432/lou_test",
+    )
+    repository = tmp_path / "broken-store"
+    _seed(repository)
+    settings = Settings(
+        database_url=test_url,
+        fixture_database_url=fixture_url,
+        artifact_root=tmp_path / "artifacts",
+    )
+    app = create_app(settings=settings)
+    request = {
+        "schema_version": "1",
+        "repository_path": str(repository),
+        "base_revision": "good",
+        "candidate_revision": "n-plus-one",
+    }
+
+    def submit() -> HttpResponse:
+        return cast(HttpResponse, TestClient(app).post("/analysis", json=request))
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(submit) for _ in range(2)]
+        responses = [future.result() for future in futures]
+    assert all(response.status_code == 202 for response in responses)
+    bodies = [response.json() for response in responses]
+    assert len({body["analysis_run_id"] for body in bodies}) == 1
+    assert {body["reused"] for body in bodies} == {False, True}
+    created_body = next(body for body in bodies if not body["reused"])
+    assert created_body["status"] == "succeeded"
+
+    run_id = created_body["analysis_run_id"]
+    client = TestClient(app)
+    status_response = client.get(f"/analysis/{run_id}")
+    report_response = client.get(f"/analysis/{run_id}/report")
+    expected = EvidenceReportReader(
+        create_session_factory(settings), settings.artifact_root
+    ).read(run_id)
+
+    assert status_response.status_code == 200
+    assert status_response.json()["status"] == "succeeded"
+    assert report_response.status_code == 200
+    assert report_response.text == expected.render_json()
 
 
 def _seed(target: Path) -> None:

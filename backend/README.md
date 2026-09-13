@@ -44,6 +44,39 @@ lou doctor
 The repository-intelligence coverage command is a required gate for RI-001. It fails when
 branch coverage for `lou.repository` falls below 90 percent.
 
+## Local API
+
+Start the same local composition used by `lou analyze`:
+
+```bash
+cd backend
+uvicorn apps.api.main:app --reload
+```
+
+`GET /health` is database-free. The analysis endpoints use versioned JSON contracts and
+the existing PostgreSQL-backed application service:
+
+```bash
+curl -X POST http://127.0.0.1:8000/analysis \
+  -H 'content-type: application/json' \
+  -d '{
+    "schema_version": "1",
+    "repository_path": "/absolute/path/to/broken-store",
+    "base_revision": "good",
+    "candidate_revision": "n-plus-one"
+  }'
+
+curl http://127.0.0.1:8000/analysis/<analysis-run-id>
+curl http://127.0.0.1:8000/analysis/<analysis-run-id>/report
+curl 'http://127.0.0.1:8000/analysis/<analysis-run-id>/report?format=markdown'
+```
+
+The `POST` response is `202` and includes the durable run ID. Repeating identical
+immutable inputs reuses the same run; set `force_new_run` and supply a `force_token`
+only when intentionally measuring a new run. Invalid repository/revision/configuration
+input returns a versioned `400` error before an analysis row is created. The current
+local fixture runs synchronously inside the request; no queue or hosted worker is added.
+
 ## Live Fixture Analysis
 
 The first live slice intentionally supports only Lou's checked-in `broken-store` fixture. It creates
