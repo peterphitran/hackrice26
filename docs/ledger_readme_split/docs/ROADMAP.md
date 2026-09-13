@@ -67,12 +67,11 @@ Goal:
 
 ## M3 — Repository Graph
 
-Add:
+Implemented for the local Python prototype:
 
 ```text
-Tree-sitter
-SCIP
-NetworkX
+Python AST + NetworkX structural graph
+bounded local lexical retrieval from immutable Git blobs
 ```
 
 Use the graph for:
@@ -82,7 +81,11 @@ better context
 affected symbols
 affected tests
 blast radius
+supplemental agent context
 ```
+
+Tree-sitter, SCIP, and embedding-backed retrieval remain optional future backends. They are not
+runtime requirements for the local lexical v1 path.
 
 ## M4 — Impact Prediction
 

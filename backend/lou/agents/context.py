@@ -15,6 +15,7 @@ from contracts import (
     VerificationResult,
     WorkloadSelection,
 )
+from lou.repository.retrieval import RetrievalResponse
 
 
 class BundleBudget(BaseModel):
@@ -95,6 +96,7 @@ def build_context_bundle(
     *,
     budget: BundleBudget | None = None,
     repository_texts: Sequence[RepositoryText] = (),
+    semantic_retrieval: RetrievalResponse | None = None,
     live_sources: Sequence[str] = (),
 ) -> AgentContextBundle:
     """Build a deterministic bundle from frozen records and explicitly label gaps.
@@ -117,6 +119,11 @@ def build_context_bundle(
         raise ValueError("Expected patch must be based on the candidate commit")
     if finding.phase != "candidate" or candidate.phase != "candidate":
         raise ValueError("Finding and verification must be candidate phase")
+    if semantic_retrieval is not None and (
+        semantic_retrieval.repository_id != job.repository_id
+        or semantic_retrieval.commit_sha != job.candidate_commit_sha
+    ):
+        raise ValueError("Semantic retrieval identity must match the analysis candidate")
 
     limit = budget or BundleBudget()
     live = frozenset(live_sources)
@@ -289,6 +296,72 @@ def build_context_bundle(
                 source="demo_checkout/patch_artifact.json",
             )
         )
+
+    if semantic_retrieval is not None:
+        mandatory_keys = {
+            "candidate_change",
+            "candidate_finding",
+            "candidate_verification",
+            "selected_graph_context",
+            *(f"workload:{identifier}" for identifier in context.selected_workload_ids),
+        }
+        included_keys = {item.key for item in included}
+        missing_mandatory = sorted(mandatory_keys - included_keys)
+        for result in semantic_retrieval.results:
+            key = f"semantic:{result.key}"
+            if missing_mandatory:
+                omitted.append(
+                    OmittedContext(
+                        key=key,
+                        reason=(
+                            "Supplemental retrieval cannot replace omitted graph-required "
+                            f"context: {', '.join(missing_mandatory)}."
+                        ),
+                        source=semantic_retrieval.backend,
+                    )
+                )
+                continue
+            add(
+                BundleItem(
+                    key=key,
+                    inclusion_reason=result.selection_reason,
+                    trust="untrusted_repository",
+                    provenance="live",
+                    file_paths=(result.path,),
+                    payload={
+                        "backend": semantic_retrieval.backend,
+                        "commit_sha": semantic_retrieval.commit_sha,
+                        "kind": result.kind,
+                        "path": result.path,
+                        "symbol_key": result.symbol_key,
+                        "start_line": result.start_line,
+                        "end_line": result.end_line,
+                        "score": result.score,
+                        "matched_query_terms": list(result.matched_terms),
+                        "untrusted_repository_data": result.content,
+                    },
+                ),
+                "local lexical semantic retrieval",
+            )
+        for index, diagnostic in enumerate(semantic_retrieval.diagnostics):
+            detail = ": ".join(
+                value for value in (diagnostic.code, diagnostic.path, diagnostic.detail) if value
+            )
+            omitted.append(
+                OmittedContext(
+                    key=f"semantic_retrieval:{index}:{diagnostic.code}",
+                    reason=f"Supplemental retrieval was incomplete: {detail}.",
+                    source=semantic_retrieval.backend,
+                )
+            )
+        if semantic_retrieval.completeness < 1 and not semantic_retrieval.diagnostics:
+            omitted.append(
+                OmittedContext(
+                    key="semantic_retrieval:incomplete",
+                    reason="Supplemental retrieval reported incomplete coverage.",
+                    source=semantic_retrieval.backend,
+                )
+            )
 
     unresolved = tuple(context.unresolved_relationships[: limit.max_unresolved_relationships])
     if len(unresolved) < len(context.unresolved_relationships):

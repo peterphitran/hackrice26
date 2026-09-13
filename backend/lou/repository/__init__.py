@@ -14,6 +14,18 @@ from lou.repository.graph import (
     RepositoryGraphSnapshot,
     build_repository_graph,
 )
+from lou.repository.retrieval import (
+    IndexedDocument,
+    LexicalRepositoryIndex,
+    LocalLexicalRetriever,
+    RankedRetrievalResult,
+    RepositoryRetriever,
+    RetrievalDiagnostic,
+    RetrievalLimits,
+    RetrievalQuery,
+    RetrievalResponse,
+    build_lexical_index,
+)
 from lou.repository.symbols import extract_changed_symbols
 from lou.repository.traversal import (
     ImpactNode,
@@ -38,6 +50,16 @@ __all__ = [
     "RepositoryGraphError",
     "RepositoryGraphSnapshot",
     "build_repository_graph",
+    "IndexedDocument",
+    "LexicalRepositoryIndex",
+    "LocalLexicalRetriever",
+    "RankedRetrievalResult",
+    "RepositoryRetriever",
+    "RetrievalDiagnostic",
+    "RetrievalLimits",
+    "RetrievalQuery",
+    "RetrievalResponse",
+    "build_lexical_index",
     "extract_changed_symbols",
     "parse_repository_changes",
     "resolve_repository_revisions",
