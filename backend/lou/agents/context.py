@@ -43,7 +43,8 @@ class BundleItem(BaseModel):
 
     key: str
     inclusion_reason: str
-    trust: Literal["recorded_fixture", "untrusted_repository"]
+    trust: Literal["analysis_record", "untrusted_repository"]
+    provenance: Literal["live", "recorded"]
     file_paths: tuple[str, ...] = ()
     payload: dict[str, Any]
 
@@ -94,8 +95,13 @@ def build_context_bundle(
     *,
     budget: BundleBudget | None = None,
     repository_texts: Sequence[RepositoryText] = (),
+    live_sources: Sequence[str] = (),
 ) -> AgentContextBundle:
-    """Build a deterministic bundle from frozen records and explicitly label gaps."""
+    """Build a deterministic bundle from frozen records and explicitly label gaps.
+
+    `live_sources` names the item keys whose records came from a real run rather than
+    a recorded fixture; anything unnamed is reported as recorded.
+    """
     if not (
         job.analysis_run_id
         == finding.analysis_run_id
@@ -113,6 +119,11 @@ def build_context_bundle(
         raise ValueError("Finding and verification must be candidate phase")
 
     limit = budget or BundleBudget()
+    live = frozenset(live_sources)
+
+    def provenance_of(key: str) -> Literal["live", "recorded"]:
+        return "live" if key in live else "recorded"
+
     included: list[BundleItem] = []
     omitted: list[OmittedContext] = []
     file_paths: set[str] = set()
@@ -150,7 +161,8 @@ def build_context_bundle(
         BundleItem(
             key="candidate_change",
             inclusion_reason="Identifies the changed checkout symbol and expected repair.",
-            trust="recorded_fixture",
+            trust="analysis_record",
+            provenance=provenance_of("candidate_change"),
             file_paths=(finding.file_path,) if finding.file_path else (),
             payload={
                 "base_commit_sha": job.base_commit_sha,
@@ -167,7 +179,8 @@ def build_context_bundle(
         BundleItem(
             key="candidate_finding",
             inclusion_reason="Explains the measured N+1 regression and its source location.",
-            trust="recorded_fixture",
+            trust="analysis_record",
+            provenance=provenance_of("candidate_finding"),
             file_paths=(finding.file_path,) if finding.file_path else (),
             payload=finding.model_dump(mode="json"),
         ),
@@ -177,7 +190,8 @@ def build_context_bundle(
         BundleItem(
             key="candidate_verification",
             inclusion_reason="Shows failed candidate measurements and passing unit tests.",
-            trust="recorded_fixture",
+            trust="analysis_record",
+            provenance=provenance_of("candidate_verification"),
             payload=candidate.model_dump(mode="json"),
         ),
         "verification_candidate.json",
@@ -186,7 +200,8 @@ def build_context_bundle(
         BundleItem(
             key="selected_graph_context",
             inclusion_reason="Connects the changed symbol to tests, endpoint, and workloads.",
-            trust="recorded_fixture",
+            trust="analysis_record",
+            provenance=provenance_of("selected_graph_context"),
             payload=context.model_dump(mode="json"),
         ),
         "repository_context.json",
@@ -211,7 +226,8 @@ def build_context_bundle(
                 inclusion_reason=context.selection_reasons.get(
                     workload.workload_id, workload.reason
                 ),
-                trust="recorded_fixture",
+                trust="analysis_record",
+                provenance=provenance_of(f"workload:{workload.workload_id}"),
                 file_paths=(workload.definition_path,),
                 payload=workload.model_dump(mode="json"),
             ),
@@ -255,6 +271,7 @@ def build_context_bundle(
                 key=key,
                 inclusion_reason=f"Caller supplied {record.kind} as untrusted evidence.",
                 trust="untrusted_repository",
+                provenance=provenance_of(key),
                 file_paths=(record.path,) if record.path else (),
                 payload={
                     "kind": record.kind,
