@@ -25,6 +25,6 @@ if ! psql --username "$POSTGRES_USER" --dbname postgres --tuples-only --no-align
 fi
 
 psql --username "$POSTGRES_USER" --dbname postgres <<'SQL'
-GRANT CONNECT ON DATABASE lou TO lou;
-GRANT CONNECT ON DATABASE lou_test TO lou_test_app;
+GRANT CONNECT, CREATE ON DATABASE lou TO lou;
+GRANT CONNECT, CREATE ON DATABASE lou_test TO lou_test_app;
 SQL

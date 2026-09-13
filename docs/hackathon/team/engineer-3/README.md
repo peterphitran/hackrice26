@@ -51,10 +51,10 @@ Engineer 4 owns the base Compose file and PostgreSQL container. You own fixture 
 
 ### Phase 1 — Deterministic fixture
 
-- [x ] Co-author SH-004 with Engineer 4.
-- [x ] EV-001: build the FastAPI store, fixed dataset, tests, checkout workload, and N+1 patch.
-- [x ] Seed a temporary Git repository with stable logical `good` and `n-plus-one` refs.
-- [x ] Prove unit tests pass in both states while the runtime signal regresses.
+- [X] Co-author SH-004 with Engineer 4.
+- [X] EV-001: build the FastAPI store, fixed dataset, tests, checkout workload, and N+1 patch.
+- [X] Seed a temporary Git repository with stable logical `good` and `n-plus-one` refs.
+- [X] Prove unit tests pass in both states while the runtime signal regresses.
 
 ### Phase 2 — Execution foundation
 
@@ -74,10 +74,10 @@ requires Docker and `k6` on `PATH`; missing tools produce an inconclusive result
 
 ### Phase 4 — Fix verification
 
-- [ ] Lead INT-002 with graph selection from Engineer 1 and persistence/reporting from Engineer 4.
-- [ ] EV-007: apply Engineer 2's patch to a fresh worktree and repeat exact verification.
-- [ ] Test both the expected repair and a deliberately ineffective patch.
-- [ ] Add EV-008 only after the primary evidence is stable.
+- [X] Lead INT-002 with graph selection from Engineer 1 and persistence/reporting from Engineer 4.
+- [X] EV-007: apply Engineer 2's patch to a fresh worktree and repeat exact verification.
+- [X] Test both the expected repair and a deliberately ineffective patch.
+- [X] Add EV-008 only after the primary evidence is stable.
 
 ## Inputs You Consume
 
