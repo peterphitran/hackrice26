@@ -181,9 +181,10 @@ def test_fixture_intelligence_selects_only_graph_reached_registry_workloads(
     )
 
     assert context.selected_workload_ids == ["checkout-pytest", "checkout-k6"]
-    assert context.affected_tests == ["tests/test_checkout.py"]
+    assert context.affected_tests == ["tests/test_checkout.py::test_receipt"]
     assert context.affected_endpoints == ["POST /checkout"]
     assert context.affected_data_dependencies == ["broken_store.products"]
+    assert "reachable graph evidence" in context.selection_reasons["checkout-k6"]
     assert context.metadata["impact_traversal"]["nodes"]
 
 
