@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+.venv/
+
+# Local configuration and Lou artifacts
+.env
+.env.*
+!.env.example
+.lou/
+
+# Local specification drafts (not part of implementation pull requests)
+docs/hackathon/specs/
+
+# Operating system and editor files
+.DS_Store
+*.swp
+*.swo
+
+# Build output
+build/
+dist/
+*.egg-info/

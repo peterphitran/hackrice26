@@ -157,6 +157,7 @@ The MVP intentionally excludes multi-language indexing, Kubernetes, auto-merge, 
 ## Documentation
 
 - [Hackathon Plan](../hackathon/README.md)
+- [Hackathon Task Board](../hackathon/TASKS.md)
 - [PostgreSQL Schema Plan](../hackathon/DATABASE_SCHEMA.md)
 - [Tech Stack](docs/TECH_STACK.md)
 - [Architecture](docs/ARCHITECTURE.md)

@@ -1,0 +1,20 @@
+{
+  "schema_version": "1",
+  "verification_run_id": "verify_checkout_candidate_001",
+  "analysis_run_id": "run_sh001_checkout_001",
+  "phase": "candidate",
+  "commit_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "status": "failed",
+  "metrics": {"p50_ms": 170.0, "p95_ms": 560.0, "p99_ms": 850.0, "queries_per_checkout": 54.0},
+  "findings": ["finding_checkout_n_plus_one_001"],
+  "evidence_ids": [],
+  "artifact_uri": "file://.lou/artifacts/run_sh001_checkout_001/candidate/verification.json",
+  "metadata": {
+    "parent_commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "workload_ids": ["checkout-pytest", "checkout-k6"],
+    "pytest_status": "passed",
+    "k6_status": "failed",
+    "k6_repetitions": 5,
+    "latency_variance_cv": 0.06
+  }
+}

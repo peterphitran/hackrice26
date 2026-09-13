@@ -1,5 +1,7 @@
 # Team Ownership
 
+The hackathon-specific tasks, order, handoffs, and acceptance checks are split into [four engineer assignment READMEs](../../hackathon/team/README.md).
+
 For a team of four, divide ownership by subsystem rather than by generic frontend/backend labels.
 
 ## Engineer 1 — Repository Intelligence

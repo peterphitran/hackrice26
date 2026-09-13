@@ -4,6 +4,12 @@ Lou is a local-first, evidence-driven CI remediation prototype. The hackathon go
 
 > Lou predicts what a code change affects, selects the relevant validation, detects a regression, proposes a bounded repair, and proves whether the repair worked.
 
+## Execution Documents
+
+- [Team Task Board](TASKS.md) — owners, dependencies, acceptance checks, integration gates, and parallel work plan
+- [Engineer Assignments](team/README.md) — four separate execution READMEs with owned paths and handoffs
+- [PostgreSQL Schema Plan](DATABASE_SCHEMA.md) — MVP relationships, DDL, indexes, and persistence lifecycle
+
 ## Demo Story
 
 The benchmark repository is a deliberately vulnerable or inefficient FastAPI store. A candidate commit introduces an N+1 query in the checkout path while its ordinary unit tests continue to pass.
@@ -270,6 +276,8 @@ The hackathon does not train a model. It proves that Lou creates falsifiable pre
 - Make GitHub integration optional so loss of network access cannot break the core demo.
 
 ## Recommended Build Order
+
+The actionable, owner-assigned version of this sequence is maintained in the [Team Task Board](TASKS.md).
 
 ```text
 1. Broken FastAPI fixture with known-good and N+1 commits

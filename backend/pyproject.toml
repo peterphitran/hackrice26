@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lou"
+version = "0.1.0"
+description = "Evidence-driven software maintenance orchestration."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi==0.141.1",
+  "pydantic==2.13.5",
+  "pydantic-settings==2.15.0",
+  "psycopg[binary]==3.3.5",
+  "rich==13.9.4",
+  "sqlalchemy==2.0.52",
+  "typer==0.27.2",
+  "uvicorn[standard]==0.52.4",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx==0.28.1",
+  "mypy==1.20.2",
+  "pytest==8.4.2",
+  "ruff==0.16.7",
+]
+
+[project.scripts]
+lou = "apps.cli.main:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["apps", "contracts", "lou"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_configs = true

@@ -1,0 +1,10 @@
+{
+  "schema_version": "1",
+  "workload_id": "checkout-pytest",
+  "workload_type": "pytest",
+  "definition_path": "backend/fixtures/broken-store/tests/test_checkout.py",
+  "phase": "candidate",
+  "reason": "The changed checkout() symbol reaches test_checkout_total.",
+  "confidence": 0.98,
+  "metadata": {"test_nodeid": "tests/test_checkout.py::test_checkout_total"}
+}

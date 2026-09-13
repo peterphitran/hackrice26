@@ -1,0 +1,15 @@
+{
+  "schema_version": "1",
+  "repository_id": "repo_store_api",
+  "commit_sha": "n_plus_one_commit",
+  "changed_symbols": ["orders.service.list_orders"],
+  "affected_symbols": ["orders.repository.get_customer"],
+  "affected_tests": ["tests/test_orders.py::test_list_orders"],
+  "affected_endpoints": ["GET /orders"],
+  "affected_data_dependencies": ["orders", "customers"],
+  "selected_workload_ids": ["checkout-load"],
+  "selection_reasons": {"checkout-load": "Changed request path calls order listing."},
+  "unresolved_relationships": [],
+  "completeness": 0.95,
+  "metadata": {"extractor": "python-ast"}
+}
