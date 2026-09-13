@@ -2,14 +2,24 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from hashlib import sha256
 from pathlib import Path
 from typing import Literal, Protocol
 
-from contracts import RepositoryChange, RepositoryContext, WorkloadSelection
+from contracts import (
+    Evidence,
+    Finding,
+    LouDecision,
+    RepositoryChange,
+    RepositoryContext,
+    VerificationResult,
+    WorkloadSelection,
+)
 
 AnalysisStatus = Literal["succeeded", "failed", "inconclusive", "blocked"]
+MAX_CONFIGURATION_BYTES = 32_768
 
 
 @dataclass(frozen=True)
@@ -24,11 +34,12 @@ class AnalysisRequest:
     toolchain_revision: str = "1"
     policy_revision: str = "1"
     force_new_run: bool = False
+    force_token: str | None = None
 
     def deduplication_key(self) -> str:
         """Return a stable key for identical immutable analysis inputs."""
 
-        stable_config = repr(sorted(self.configuration.items()))
+        stable_config = self._serialized_configuration()
         value = "\x1f".join(
             (
                 self.repository_id,
@@ -41,6 +52,23 @@ class AnalysisRequest:
         )
         return sha256(value.encode("utf-8")).hexdigest()
 
+    def _serialized_configuration(self) -> str:
+        return json.dumps(
+            self.configuration,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        )
+
+
+@dataclass(frozen=True)
+class VerificationBundle:
+    """One verification result and the immutable records that support it."""
+
+    result: VerificationResult
+    findings: tuple[Finding, ...] = ()
+    evidence: tuple[Evidence, ...] = ()
+
 
 @dataclass(frozen=True)
 class AnalysisResult:
@@ -51,6 +79,8 @@ class AnalysisResult:
     reused: bool
     stages: tuple[str, ...]
     message: str | None = None
+    decision: LouDecision | None = None
+    verification_results: tuple[VerificationResult, ...] = ()
 
 
 class AnalysisStore(Protocol):
@@ -67,6 +97,10 @@ class AnalysisStore(Protocol):
         context: RepositoryContext,
         workloads: tuple[WorkloadSelection, ...],
     ) -> None: ...
+
+    def record_verification(self, run_id: str, bundle: VerificationBundle) -> None: ...
+
+    def record_decision(self, run_id: str, decision: LouDecision) -> None: ...
 
     def finish(self, run_id: str, status: AnalysisStatus, message: str | None = None) -> None: ...
 
@@ -85,42 +119,145 @@ class WorkloadSelectionPort(Protocol):
     def select(self, context: RepositoryContext) -> tuple[WorkloadSelection, ...]: ...
 
 
+class VerificationPort(Protocol):
+    """Measure equivalent baseline and candidate workloads in that order."""
+
+    def measure_baseline(
+        self,
+        request: AnalysisRequest,
+        run_id: str,
+        workloads: tuple[WorkloadSelection, ...],
+    ) -> VerificationBundle: ...
+
+    def measure_candidate(
+        self,
+        request: AnalysisRequest,
+        run_id: str,
+        workloads: tuple[WorkloadSelection, ...],
+        baseline: VerificationBundle,
+    ) -> VerificationBundle: ...
+
+
+class DecisionPort(Protocol):
+    """Make a policy-bounded decision from persisted verification evidence."""
+
+    def decide(
+        self,
+        request: AnalysisRequest,
+        run_id: str,
+        baseline: VerificationBundle,
+        candidate: VerificationBundle,
+    ) -> LouDecision: ...
+
+
 class AnalysisApplicationService:
-    """Coordinate request validation, context production, selection, and persistence."""
+    """Coordinate the seven deterministic stages of a repository analysis request."""
 
     def __init__(
         self,
         store: AnalysisStore,
         intelligence: RepositoryIntelligencePort,
         workload_selector: WorkloadSelectionPort,
+        verification: VerificationPort,
+        decision: DecisionPort,
     ) -> None:
         self._store = store
         self._intelligence = intelligence
         self._workload_selector = workload_selector
+        self._verification = verification
+        self._decision = decision
 
     def run(self, request: AnalysisRequest) -> AnalysisResult:
-        """Execute the deterministic pre-verification portion of an analysis request."""
+        """Run validate → initialize → inspect → select → verify → decide → finalize."""
 
         self._validate(request)
         key = self._force_key(request) if request.force_new_run else request.deduplication_key()
         run_id, reused = self._store.create_or_get(request, key)
         if reused:
-            return AnalysisResult(run_id, "succeeded", True, ("initialize",))
+            return AnalysisResult(run_id, "succeeded", True, ("validate", "initialize"))
 
-        stages = ["initialize"]
+        stages = ["validate", "initialize"]
+        verification_results: list[VerificationResult] = []
         try:
             change, context = self._intelligence.inspect(request, run_id)
             stages.append("inspect")
             workloads = self._workload_selector.select(context)
             stages.append("select")
-            if not workloads:
-                self._store.finish(run_id, "inconclusive", "No runnable workload was selected.")
-                return AnalysisResult(run_id, "inconclusive", False, tuple(stages))
             self._store.record_context(run_id, change, context, workloads)
-            return AnalysisResult(run_id, "succeeded", False, tuple(stages))
+            if not workloads:
+                return self._finish(
+                    run_id,
+                    "inconclusive",
+                    stages,
+                    "No runnable workload was selected.",
+                )
+
+            baseline = self._verification.measure_baseline(request, run_id, workloads)
+            self._store.record_verification(run_id, baseline)
+            verification_results.append(baseline.result)
+            if baseline.result.status != "passed":
+                return self._finish(
+                    run_id,
+                    "inconclusive",
+                    [*stages, "verify"],
+                    "Baseline verification did not produce a comparable measurement.",
+                    verification_results,
+                )
+
+            candidate = self._verification.measure_candidate(request, run_id, workloads, baseline)
+            self._store.record_verification(run_id, candidate)
+            verification_results.append(candidate.result)
+            stages.append("verify")
+            if candidate.result.status == "inconclusive":
+                return self._finish(
+                    run_id,
+                    "inconclusive",
+                    stages,
+                    "Candidate verification did not produce a comparable measurement.",
+                    verification_results,
+                )
+
+            final_decision = self._decision.decide(request, run_id, baseline, candidate)
+            self._store.record_decision(run_id, final_decision)
+            stages.append("decide")
+            return self._finish(
+                run_id,
+                "succeeded",
+                stages,
+                None,
+                verification_results,
+                final_decision,
+            )
         except Exception as error:
-            self._store.finish(run_id, "failed", "Analysis service stage failed.")
-            return AnalysisResult(run_id, "failed", False, tuple(stages), type(error).__name__)
+            return self._finish(
+                run_id,
+                "failed",
+                stages,
+                "Analysis service stage failed.",
+                verification_results,
+                error_name=type(error).__name__,
+            )
+
+    def _finish(
+        self,
+        run_id: str,
+        status: AnalysisStatus,
+        stages: list[str],
+        message: str | None,
+        verification_results: list[VerificationResult] | None = None,
+        decision: LouDecision | None = None,
+        error_name: str | None = None,
+    ) -> AnalysisResult:
+        self._store.finish(run_id, status, message)
+        return AnalysisResult(
+            run_id,
+            status,
+            False,
+            tuple([*stages, "finalize"]),
+            error_name or message,
+            decision,
+            tuple(verification_results or ()),
+        )
 
     @staticmethod
     def _validate(request: AnalysisRequest) -> None:
@@ -132,7 +269,16 @@ class AnalysisApplicationService:
             raise ValueError("base and candidate revisions are required")
         if request.base_commit_sha == request.candidate_commit_sha:
             raise ValueError("base and candidate revisions must differ")
+        if request.force_new_run and not request.force_token:
+            raise ValueError("force_token is required when force_new_run is enabled")
+        try:
+            configuration_bytes = request._serialized_configuration().encode("utf-8")
+        except (TypeError, ValueError) as error:
+            raise ValueError("configuration must be JSON-serializable") from error
+        if len(configuration_bytes) > MAX_CONFIGURATION_BYTES:
+            raise ValueError("configuration exceeds the 32 KiB limit")
 
     @staticmethod
     def _force_key(request: AnalysisRequest) -> str:
-        return f"{request.deduplication_key()}-force-{id(request)}"
+        assert request.force_token is not None
+        return f"{request.deduplication_key()}-force-{request.force_token}"

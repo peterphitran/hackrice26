@@ -5,6 +5,13 @@ from lou.application.analysis import (
     AnalysisRequest,
     AnalysisResult,
     AnalysisStatus,
+    VerificationBundle,
 )
 
-__all__ = ["AnalysisApplicationService", "AnalysisRequest", "AnalysisResult", "AnalysisStatus"]
+__all__ = [
+    "AnalysisApplicationService",
+    "AnalysisRequest",
+    "AnalysisResult",
+    "AnalysisStatus",
+    "VerificationBundle",
+]
