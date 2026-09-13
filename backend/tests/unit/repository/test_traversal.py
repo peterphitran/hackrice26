@@ -2,16 +2,24 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from pathlib import Path
 
-import networkx as nx
+import networkx as nx  # type: ignore[import-untyped]
 
 from lou.repository import (
     GraphDiagnostic,
     RepositoryGraphSnapshot,
     TraversalLimits,
+    build_repository_context,
+    build_repository_graph,
+    extract_changed_symbols,
+    parse_repository_changes,
     traverse_repository_impact,
 )
+
+FIXTURE_ROOT = Path(__file__).parents[3] / "fixtures" / "broken-store"
 
 
 def _snapshot(*, diagnostics: tuple[GraphDiagnostic, ...] = ()) -> RepositoryGraphSnapshot:
@@ -86,9 +94,7 @@ def test_traversal_reaches_fixture_verification_targets() -> None:
     ]
     assert [item.key for item in traversal.by_type("ENDPOINT")] == ["POST /checkout"]
     assert [item.key for item in traversal.by_type("DATABASE_TABLE")] == ["broken_store.products"]
-    assert [item.key for item in traversal.by_type("LOAD_SCENARIO")] == [
-        "loadtests/checkout.js"
-    ]
+    assert [item.key for item in traversal.by_type("LOAD_SCENARIO")] == ["loadtests/checkout.js"]
     load = traversal.by_type("LOAD_SCENARIO")[0]
     assert load.distance == 3
     assert load.edge_path == ("CALLS", "SERVES_ENDPOINT", "VALIDATED_BY")
@@ -141,3 +147,80 @@ def test_traversal_reports_missing_changed_nodes() -> None:
 
     assert traversal.nodes == ()
     assert traversal.unresolved_relationships == ("no_changed_graph_nodes",)
+
+
+def test_builds_repository_context_for_real_broken_store_fixture(tmp_path: Path) -> None:
+    repository = tmp_path / "broken-store"
+    subprocess.run(
+        [sys.executable, str(FIXTURE_ROOT / "scripts" / "seed_fixture_repo.py"), str(repository)],
+        check=True,
+    )
+    change = parse_repository_changes(
+        repository_id="broken-store",
+        repository_path=repository,
+        base_revision="good",
+        candidate_revision="n-plus-one",
+    )
+    change = extract_changed_symbols(repository_path=repository, change=change)
+    snapshot = build_repository_graph(
+        repository_path=repository,
+        change=change,
+        analysis_run_id="ri-004-context",
+        artifact_root=tmp_path / "artifacts",
+    )
+    traversal = traverse_repository_impact(snapshot)
+
+    context = build_repository_context(
+        traversal,
+        repository_id=change.repository_id,
+        commit_sha=change.candidate_commit_sha,
+    )
+
+    assert context.changed_symbols == ["store.app.Store.checkout"]
+    assert {
+        "tests/test_checkout.py::test_checkout_receipt_stays_correct",
+        "tests/test_postgres.py::test_checkout_against_postgresql",
+    } <= set(context.affected_tests)
+    assert context.affected_endpoints == ["POST /checkout"]
+    assert set(context.affected_data_dependencies) == {
+        "broken_store.cart_items",
+        "broken_store.products",
+    }
+    assert context.selected_workload_ids == ["checkout-pytest", "checkout-k6"]
+    assert context.unresolved_relationships == []
+    assert context.completeness == 1.0
+
+    returned = {
+        *context.changed_symbols,
+        *context.affected_symbols,
+        *context.affected_tests,
+        *context.affected_endpoints,
+        *context.affected_data_dependencies,
+        *context.selected_workload_ids,
+    }
+    assert set(context.selection_reasons) == returned
+    assert all(context.selection_reasons.values())
+    assert "distance 3" in context.selection_reasons["checkout-k6"]
+    assert "CALLS -> SERVES_ENDPOINT -> VALIDATED_BY" in (context.selection_reasons["checkout-k6"])
+
+
+def test_repository_context_carries_incomplete_traversal_state() -> None:
+    traversal = traverse_repository_impact(
+        _snapshot(
+            diagnostics=(GraphDiagnostic("unresolved_call", "store/app.py", "dynamic target"),)
+        )
+    )
+    traversal = type(traversal)(
+        traversal.nodes,
+        traversal.unresolved_relationships,
+        0.6,
+    )
+
+    context = build_repository_context(
+        traversal,
+        repository_id="repo-store",
+        commit_sha="a" * 40,
+    )
+
+    assert context.unresolved_relationships == ["unresolved_call: store/app.py: dynamic target"]
+    assert context.completeness == 0.6

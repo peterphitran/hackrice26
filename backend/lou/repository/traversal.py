@@ -6,7 +6,11 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Any, cast
 
+from contracts import RepositoryContext
 from lou.repository.graph import EdgeType, NodeType, RepositoryGraphSnapshot
+
+_PYTEST_WORKLOAD_ID = "checkout-pytest"
+_K6_WORKLOAD_ID = "checkout-k6"
 
 
 @dataclass(frozen=True)
@@ -68,6 +72,85 @@ class ImpactTraversal:
             ],
             "unresolved_relationships": list(self.unresolved_relationships),
         }
+
+
+def build_repository_context(
+    traversal: ImpactTraversal,
+    *,
+    repository_id: str,
+    commit_sha: str,
+) -> RepositoryContext:
+    """Convert typed impact results into the frozen downstream context contract.
+
+    The first demo has one approved pytest workload and one approved k6 workload.
+    Their IDs intentionally match the verification registry; graph node keys remain
+    unchanged everywhere else.
+    """
+
+    roots = [node for node in traversal.nodes if node.distance == 0]
+    symbols = [node for node in traversal.nodes if node.node_type in {"FUNCTION", "CLASS"}]
+    tests = list(traversal.by_type("TEST"))
+    endpoints = list(traversal.by_type("ENDPOINT"))
+    tables = list(traversal.by_type("DATABASE_TABLE"))
+    scenarios = list(traversal.by_type("LOAD_SCENARIO"))
+
+    selected_workload_ids: list[str] = []
+    workload_reasons: dict[str, str] = {}
+    reachable_tests = [
+        node for node in tests if any(edge in {"TESTED_BY", "CALLS"} for edge in node.edge_path)
+    ]
+    if reachable_tests:
+        selected_workload_ids.append(_PYTEST_WORKLOAD_ID)
+        workload_reasons[_PYTEST_WORKLOAD_ID] = _workload_reason(
+            _PYTEST_WORKLOAD_ID, reachable_tests
+        )
+    if scenarios:
+        selected_workload_ids.append(_K6_WORKLOAD_ID)
+        workload_reasons[_K6_WORKLOAD_ID] = _workload_reason(_K6_WORKLOAD_ID, scenarios)
+
+    returned_nodes = [*roots, *symbols, *tests, *endpoints, *tables]
+    selection_reasons = {node.key: _node_reason(node) for node in returned_nodes}
+    selection_reasons.update(workload_reasons)
+
+    return RepositoryContext(
+        repository_id=repository_id,
+        commit_sha=commit_sha,
+        changed_symbols=_stable_keys(roots),
+        affected_symbols=_stable_keys(symbols),
+        affected_tests=_stable_keys(tests),
+        affected_endpoints=_stable_keys(endpoints),
+        affected_data_dependencies=_stable_keys(tables),
+        selected_workload_ids=selected_workload_ids,
+        selection_reasons=selection_reasons,
+        unresolved_relationships=list(traversal.unresolved_relationships),
+        completeness=traversal.completeness,
+        metadata={
+            "source": "lou.repository.traversal",
+            "impact_traversal": traversal.payload(),
+        },
+    )
+
+
+def _stable_keys(nodes: list[ImpactNode]) -> list[str]:
+    return list(dict.fromkeys(node.key for node in nodes))
+
+
+def _edge_path(node: ImpactNode) -> str:
+    return " -> ".join(node.edge_path) if node.edge_path else "traversal root"
+
+
+def _node_reason(node: ImpactNode) -> str:
+    return (
+        f"Reached {node.node_type} node {node.key} at distance {node.distance} "
+        f"via {_edge_path(node)}."
+    )
+
+
+def _workload_reason(workload_id: str, nodes: list[ImpactNode]) -> str:
+    evidence = "; ".join(
+        f"{node.key} at distance {node.distance} via {_edge_path(node)}" for node in nodes
+    )
+    return f"Selected {workload_id} from reachable graph evidence: {evidence}."
 
 
 def traverse_repository_impact(

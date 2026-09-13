@@ -19,6 +19,7 @@ from lou.repository.traversal import (
     ImpactNode,
     ImpactTraversal,
     TraversalLimits,
+    build_repository_context,
     traverse_repository_impact,
 )
 
@@ -37,5 +38,6 @@ __all__ = [
     "ImpactNode",
     "ImpactTraversal",
     "TraversalLimits",
+    "build_repository_context",
     "traverse_repository_impact",
 ]
