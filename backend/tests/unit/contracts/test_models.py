@@ -1,6 +1,8 @@
 from datetime import UTC, datetime
 from pathlib import Path
 
+from pydantic import BaseModel
+
 from contracts import (
     AnalysisJob,
     Evidence,
@@ -62,7 +64,7 @@ def test_evidence_and_decision_support_hackathon_result() -> None:
 
 
 def test_published_contract_fixtures_validate() -> None:
-    fixtures = {
+    fixtures: dict[str, type[BaseModel]] = {
         "analysis_job.json": AnalysisJob,
         "workload_selection.json": WorkloadSelection,
         "repository_context.json": RepositoryContext,
@@ -76,4 +78,4 @@ def test_published_contract_fixtures_validate() -> None:
 
     for filename, model in fixtures.items():
         payload = (FIXTURES_DIR / filename).read_text()
-        assert model.model_validate_json(payload).schema_version == "1"
+        assert model.model_validate_json(payload).model_dump()["schema_version"] == "1"
