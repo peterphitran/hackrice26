@@ -64,12 +64,14 @@ def test_looped_database_call_matches_demo_contract_shape(tmp_path: Path) -> Non
     assert finding.metadata["line_numbers"] == [4]
 
     evidence = Evidence.model_validate(result.evidence[0].model_dump())
-    assert evidence.artifact_uri == ".lou/artifacts/run-1/static-analyzer.json"
+    assert evidence.artifact_uri == ".lou/artifacts/run-1/candidate/static-analyzer.json"
     assert evidence.artifact_uri is not None
     raw_bytes = (tmp_path / evidence.artifact_uri).read_bytes()
     assert evidence.artifact_sha256 == sha256(raw_bytes).hexdigest()
     assert result.artifact_sha256 == evidence.artifact_sha256
     raw = json.loads(raw_bytes)
+    assert raw["phase"] == "candidate"
+    assert raw["tool_exit_status"] == 0
     assert raw["files"][0]["matches"][0]["symbol_key"] == finding.symbol_key
 
 
@@ -156,6 +158,79 @@ def checkout(connection, worker):
     assert result.findings[0].metadata["line_numbers"] == [3]
 
 
+def test_async_method_and_loop_else_are_scanned(tmp_path: Path) -> None:
+    _source(
+        tmp_path,
+        """\
+class CheckoutService:
+    async def checkout(self, connection, products):
+        async for product in products:
+            self.connection.execute("SELECT 1")
+        else:
+            connection.execute("SELECT outside the loop")
+""",
+    )
+    result = analyze_python_sources(
+        repository_root=tmp_path,
+        file_paths=["checkout/service.py"],
+        analysis_run_id="run-async",
+        phase="candidate",
+    )
+
+    assert len(result.findings) == 1
+    assert result.findings[0].symbol_key == "checkout.service.CheckoutService.checkout"
+    assert result.findings[0].metadata["line_numbers"] == [4]
+
+
+def test_phase_scopes_artifacts_and_contract_record_ids(tmp_path: Path) -> None:
+    _source(tmp_path, N_PLUS_ONE)
+    baseline = analyze_python_sources(
+        repository_root=tmp_path,
+        file_paths=["checkout/service.py"],
+        analysis_run_id="run-phases",
+        phase="baseline",
+    )
+    candidate = analyze_python_sources(
+        repository_root=tmp_path,
+        file_paths=["checkout/service.py"],
+        analysis_run_id="run-phases",
+        phase="candidate",
+    )
+
+    assert baseline.findings[0].fingerprint == candidate.findings[0].fingerprint
+    assert baseline.findings[0].finding_id != candidate.findings[0].finding_id
+    assert baseline.evidence[0].evidence_id != candidate.evidence[0].evidence_id
+    assert baseline.artifact_uri != candidate.artifact_uri
+    assert baseline.artifact_uri is not None
+    assert candidate.artifact_uri is not None
+    assert (tmp_path / baseline.artifact_uri).is_file()
+    assert (tmp_path / candidate.artifact_uri).is_file()
+
+
+def test_existing_artifact_is_not_overwritten_with_different_output(tmp_path: Path) -> None:
+    source = _source(tmp_path, N_PLUS_ONE)
+    first = analyze_python_sources(
+        repository_root=tmp_path,
+        file_paths=["checkout/service.py"],
+        analysis_run_id="run-immutable",
+        phase="candidate",
+    )
+    assert first.artifact_uri is not None
+    original = (tmp_path / first.artifact_uri).read_bytes()
+
+    source.write_text(BATCHED)
+    second = analyze_python_sources(
+        repository_root=tmp_path,
+        file_paths=["checkout/service.py"],
+        analysis_run_id="run-immutable",
+        phase="candidate",
+    )
+
+    assert second.status == "failed"
+    assert second.errors[-1].code == "artifact_write_error"
+    assert (tmp_path / first.artifact_uri).read_bytes() == original
+
+
 def test_disabled_adapter_does_not_scan_or_write(tmp_path: Path) -> None:
     _source(tmp_path, N_PLUS_ONE)
     result = analyze_python_sources(
@@ -185,6 +260,38 @@ def test_path_outside_repository_is_a_failed_scan(tmp_path: Path) -> None:
     assert result.tool_exit_status == 1
     assert result.completeness == 0.0
     assert result.errors[0].code == "analysis_error"
+
+
+def test_empty_scan_records_a_failed_raw_artifact(tmp_path: Path) -> None:
+    result = analyze_python_sources(
+        repository_root=tmp_path,
+        file_paths=[],
+        analysis_run_id="run-empty",
+        phase="candidate",
+    )
+
+    assert result.status == "failed"
+    assert result.tool_exit_status == 1
+    assert result.errors[0].code == "no_files"
+    assert result.artifact_uri is not None
+    raw = json.loads((tmp_path / result.artifact_uri).read_text())
+    assert raw["tool_exit_status"] == 1
+    assert raw["files"] == []
+
+
+def test_non_directory_repository_is_a_failed_scan(tmp_path: Path) -> None:
+    repository_file = tmp_path / "repository.py"
+    repository_file.write_text(N_PLUS_ONE)
+    result = analyze_python_sources(
+        repository_root=repository_file,
+        file_paths=["checkout/service.py"],
+        analysis_run_id="run-file-root",
+        phase="candidate",
+    )
+
+    assert result.status == "failed"
+    assert result.tool_exit_status == 1
+    assert result.errors[0].code == "repository_error"
 
 
 def test_analyzer_crash_is_reported_with_incomplete_scan(

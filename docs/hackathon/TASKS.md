@@ -246,7 +246,7 @@ Acceptance:
 - [ ] A configured fallback scenario is returned when the graph is incomplete.
 - [ ] Workload commands come from the checked-in registry, never model-generated shell text.
 
-### [ ] RI-006 — Normalize one static analyzer
+### [x] RI-006 — Normalize one static analyzer
 
 - Priority: P0
 - Owner: Engineer 1
@@ -256,10 +256,10 @@ Acceptance:
 
 Acceptance:
 
-- [ ] Tool exit statuses are distinguished from detected findings.
-- [ ] Findings have stable fingerprints.
-- [ ] Raw output is stored as an artifact.
-- [ ] The adapter can be disabled without breaking runtime verification.
+- [x] Tool exit statuses are distinguished from detected findings.
+- [x] Findings have stable fingerprints.
+- [x] Raw output is stored as an artifact.
+- [x] The adapter can be disabled without breaking runtime verification.
 
 ### [ ] RI-007 — Add bounded semantic retrieval
 
