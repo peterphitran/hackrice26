@@ -71,6 +71,28 @@ def _container_result(
     return outcome.execute
 
 
+def _remove_app(name: str, artifact_dir: Path) -> None:
+    """Retain application logs before removing an ephemeral runtime container."""
+
+    run_command(
+        ["docker", "logs", name], artifact_dir=artifact_dir / "logs", timeout_seconds=30
+    )
+    run_command(
+        ["docker", "rm", "--force", name],
+        artifact_dir=artifact_dir / "cleanup",
+        timeout_seconds=30,
+    )
+
+
+def _is_running(name: str, artifact_dir: Path) -> bool:
+    inspected = run_command(
+        ["docker", "inspect", "--format", "{{.State.Running}}", name],
+        artifact_dir=artifact_dir,
+        timeout_seconds=5,
+    )
+    return inspected.exit_code == 0 and inspected.stdout.text.strip() == "true"
+
+
 def _start_app(
     image: str, name: str, limits: SandboxLimits, database_url: str, artifact_dir: Path
 ) -> None:
@@ -114,11 +136,6 @@ def _start_app(
         timeout_seconds=30,
     )
     if start.tool_not_found or start.exit_code != 0:
-        run_command(
-            ["docker", "rm", "--force", name],
-            artifact_dir=artifact_dir / "cleanup",
-            timeout_seconds=30,
-        )
         raise RuntimeError(f"Fix app could not start: {start.stderr.text[:400]}")
     for attempt in range(30):
         ready = run_command(
@@ -135,13 +152,10 @@ def _start_app(
         )
         if ready.exit_code == 0:
             return
+        if not _is_running(name, artifact_dir / "inspect" / str(attempt)):
+            raise RuntimeError("Fix app exited before becoming ready; see app/logs artifacts")
         time.sleep(0.2)
-    run_command(
-        ["docker", "rm", "--force", name],
-        artifact_dir=artifact_dir / "cleanup",
-        timeout_seconds=30,
-    )
-    raise RuntimeError("Fix app did not become ready")
+    raise RuntimeError("Fix app did not become ready; see app/logs artifacts")
 
 
 class DockerWorkloadRunner:
@@ -307,11 +321,7 @@ class DockerWorkloadRunner:
                     )
                     return PhaseObservations(checks, load)
                 finally:
-                    run_command(
-                        ["docker", "rm", "--force", app_name],
-                        artifact_dir=artifact_dir / "app" / "cleanup",
-                        timeout_seconds=30,
-                    )
+                    _remove_app(app_name, artifact_dir / "app")
             finally:
                 run_command(
                     ["docker", "image", "rm", "--force", image],

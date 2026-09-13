@@ -90,15 +90,40 @@ class FixVerifier:
         self._cache: dict[tuple[str, str], dict[str, VerificationResult]] = {}
 
     def verify(self, patch: ValidatedPatch) -> VerificationResult:
+        identity_reason = self._identity_reason(patch)
+        if identity_reason is not None:
+            results = self._result(patch, "inconclusive", identity_reason, None)
+            if patch.workload_id in results:
+                return results[patch.workload_id]
+            representative = next(iter(results.values()))
+            return representative.model_copy(
+                update={
+                    "verification_run_id": f"{patch.verification_attempt_id}:{patch.workload_id}",
+                    "workload_id": patch.workload_id,
+                }
+            )
         key = (patch.verification_attempt_id, patch.patch_artifact.patch_sha256)
         if key not in self._cache:
             self._cache[key] = self._run_attempt(patch)
-        try:
-            return self._cache[key][patch.workload_id]
-        except KeyError as error:
-            raise ValueError(
-                "Requested workload is not in the trusted verification plan"
-            ) from error
+
+        return self._cache[key][patch.workload_id]
+
+    def _identity_reason(self, patch: ValidatedPatch) -> str | None:
+        """Reject a malformed verifier request before creating a worktree or runner call."""
+
+        job = patch.analysis_job
+        if patch.patch_artifact.analysis_run_id != job.analysis_run_id:
+            return "analysis_run_id_mismatch"
+        if patch.patch_artifact.base_commit_sha != job.candidate_commit_sha:
+            return "base_commit_mismatch"
+        actual_hash = sha256(patch.patch_diff.encode("utf-8")).hexdigest()
+        if actual_hash != patch.patch_artifact.patch_sha256:
+            return "patch_hash_mismatch"
+        if patch.workload_id not in {item.workload_id for item in self.selections}:
+            return "workload_id_mismatch"
+        if patch.verification_attempt_id != f"{job.analysis_run_id}:attempt:{patch.attempt_count}":
+            return "verification_attempt_id_mismatch"
+        return None
 
     def _run_attempt(self, patch: ValidatedPatch) -> dict[str, VerificationResult]:
         job = patch.analysis_job

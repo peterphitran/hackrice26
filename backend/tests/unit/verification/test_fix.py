@@ -123,6 +123,25 @@ class RecordingRunner:
         return _observations("fix", commit_sha, 2, 21)
 
 
+class FailingRunner:
+    def __init__(self, error: BaseException = RuntimeError("fixture runner failed")) -> None:
+        self.calls = 0
+        self.error = error
+
+    def run(
+        self,
+        *,
+        repository: Path,
+        commit_sha: str,
+        selections: object,
+        commands: object,
+        job: AnalysisJob,
+        artifact_dir: Path,
+    ) -> PhaseObservations:
+        self.calls += 1
+        raise self.error
+
+
 def _setup(tmp_path: Path) -> tuple[Path, str, str, str]:
     repo = tmp_path / "broken-store"
     subprocess.run(
@@ -192,6 +211,56 @@ def test_nonapplicable_patch_is_failed_before_workloads(tmp_path: Path) -> None:
     result = _verifier(tmp_path, base, candidate, runner).verify(request)
     assert result.status == "failed"
     assert result.metadata["classification"] == "patch_does_not_apply"
+    assert runner.calls == 0
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement", "classification"),
+    [
+        ("workload_id", "unplanned-workload", "workload_id_mismatch"),
+        ("verification_attempt_id", "wrong-attempt", "verification_attempt_id_mismatch"),
+    ],
+)
+def test_identity_mismatches_are_inconclusive_before_workloads(
+    tmp_path: Path, field: str, replacement: str, classification: str
+) -> None:
+    repo, base, candidate, reverse = _setup(tmp_path)
+    request = _request(repo, reverse, candidate, base)
+    runner = RecordingRunner()
+
+    result = _verifier(tmp_path, base, candidate, runner).verify(
+        request.model_copy(update={field: replacement})
+    )
+
+    assert result.status == "inconclusive"
+    assert result.metadata["classification"] == classification
+    assert result.metadata["workloads_rerun"] is False
+    assert runner.calls == 0
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement", "classification"),
+    [
+        ("analysis_run_id", "wrong-run", "analysis_run_id_mismatch"),
+        ("base_commit_sha", "b" * 40, "base_commit_mismatch"),
+        ("patch_sha256", "0" * 64, "patch_hash_mismatch"),
+    ],
+)
+def test_patch_identity_mismatches_are_inconclusive_before_workloads(
+    tmp_path: Path, field: str, replacement: str, classification: str
+) -> None:
+    repo, base, candidate, reverse = _setup(tmp_path)
+    request = _request(repo, reverse, candidate, base)
+    runner = RecordingRunner()
+    artifact = request.patch_artifact.model_copy(update={field: replacement})
+
+    result = _verifier(tmp_path, base, candidate, runner).verify(
+        request.model_copy(update={"patch_artifact": artifact})
+    )
+
+    assert result.status == "inconclusive"
+    assert result.metadata["classification"] == classification
+    assert result.metadata["workloads_rerun"] is False
     assert runner.calls == 0
 
 
@@ -295,3 +364,41 @@ def test_failed_result_does_not_claim_a_fix_commit(tmp_path: Path) -> None:
     assert result.metadata["fix_commit_sha"] is None
     assert result.metadata["workloads_rerun"] is False
     assert runner.calls == 0
+
+
+def test_runner_failure_is_inconclusive_and_removes_the_detached_worktree(tmp_path: Path) -> None:
+    repo, base, candidate, reverse = _setup(tmp_path)
+    request = _request(repo, reverse, candidate, base)
+    runner = FailingRunner()
+
+    result = _verifier(tmp_path, base, candidate, runner).verify(request)  # type: ignore[arg-type]
+
+    assert result.status == "inconclusive"
+    assert result.metadata["classification"] == "execution_failed:RuntimeError"
+    assert runner.calls == 1
+    assert "lou-fix-" not in _git(repo, "worktree", "list", "--porcelain")
+
+
+def test_timeout_is_inconclusive_and_removes_the_detached_worktree(tmp_path: Path) -> None:
+    repo, base, candidate, reverse = _setup(tmp_path)
+    request = _request(repo, reverse, candidate, base)
+    runner = FailingRunner(TimeoutError("fixture runner timed out"))
+
+    result = _verifier(tmp_path, base, candidate, runner).verify(request)  # type: ignore[arg-type]
+
+    assert result.status == "inconclusive"
+    assert result.metadata["classification"] == "execution_failed:TimeoutError"
+    assert runner.calls == 1
+    assert "lou-fix-" not in _git(repo, "worktree", "list", "--porcelain")
+
+
+def test_cancellation_removes_the_detached_worktree(tmp_path: Path) -> None:
+    repo, base, candidate, reverse = _setup(tmp_path)
+    request = _request(repo, reverse, candidate, base)
+    runner = FailingRunner(KeyboardInterrupt())
+
+    with pytest.raises(KeyboardInterrupt):
+        _verifier(tmp_path, base, candidate, runner).verify(request)  # type: ignore[arg-type]
+
+    assert runner.calls == 1
+    assert "lou-fix-" not in _git(repo, "worktree", "list", "--porcelain")
