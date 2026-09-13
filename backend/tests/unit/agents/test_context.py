@@ -99,9 +99,9 @@ def test_file_byte_and_token_budgets_record_every_drop() -> None:
         text=str(records[5].metadata["expected_change"]) * 1_000,
     )
     byte_limited = build_context_bundle(*records, repository_texts=[oversized])
-    assert "repository_text:0" in {item.key for item in byte_limited.omitted}
+    assert "candidate_diff" in {item.key for item in byte_limited.omitted}
     assert "byte-size" in next(
-        item.reason for item in byte_limited.omitted if item.key == "repository_text:0"
+        item.reason for item in byte_limited.omitted if item.key == "candidate_diff"
     )
     assert byte_limited.used_byte_count <= byte_limited.budget.max_bytes
 
@@ -129,3 +129,17 @@ def test_repository_text_is_labeled_and_json_escaped_as_data() -> None:
     assert item["trust"] == "untrusted_repository"
     assert item["payload"]["untrusted_repository_data"] == hostile
     assert '\\"role\\"' in bundle.provider_data_json()
+
+
+def test_supplied_diff_is_included_as_untrusted_data() -> None:
+    records = _records()
+    diff_text = str(records[5].metadata["expected_change"])
+    bundle = build_context_bundle(
+        *records,
+        repository_texts=[RepositoryText(kind="diff", path="checkout/service.py", text=diff_text)],
+    )
+
+    diff = next(item for item in bundle.items if item.key == "candidate_diff")
+    assert diff.trust == "untrusted_repository"
+    assert diff.payload["untrusted_repository_data"] == diff_text
+    assert "candidate_diff" not in {item.key for item in bundle.omitted}

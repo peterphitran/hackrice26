@@ -157,17 +157,11 @@ def build_context_bundle(
                 "candidate_commit_sha": job.candidate_commit_sha,
                 "changed_symbols": context.changed_symbols,
                 "file_path": finding.file_path,
+                "expected_patch_id": patch.patch_id,
                 "expected_change": patch.metadata.get("expected_change"),
             },
         ),
         "analysis_job.json + repository_context.json + patch_artifact.json",
-    )
-    omitted.append(
-        OmittedContext(
-            key="candidate_diff",
-            reason="No candidate unified diff is recorded in the checkout fixtures.",
-            source="demo_checkout/patch_artifact.json",
-        )
     )
     add(
         BundleItem(
@@ -248,10 +242,17 @@ def build_context_bundle(
                 source="repository_context.json",
             )
         )
+    has_diff = False
     for index, record in enumerate(repository_texts):
+        key = (
+            "candidate_diff"
+            if record.kind == "diff" and not has_diff
+            else f"repository_text:{index}"
+        )
+        has_diff |= record.kind == "diff"
         add(
             BundleItem(
-                key=f"repository_text:{index}",
+                key=key,
                 inclusion_reason=f"Caller supplied {record.kind} as untrusted evidence.",
                 trust="untrusted_repository",
                 file_paths=(record.path,) if record.path else (),
@@ -262,6 +263,14 @@ def build_context_bundle(
                 },
             ),
             "caller-supplied repository text",
+        )
+    if not has_diff:
+        omitted.append(
+            OmittedContext(
+                key="candidate_diff",
+                reason="No candidate unified diff is recorded in the checkout fixtures.",
+                source="demo_checkout/patch_artifact.json",
+            )
         )
 
     unresolved = tuple(context.unresolved_relationships[: limit.max_unresolved_relationships])
