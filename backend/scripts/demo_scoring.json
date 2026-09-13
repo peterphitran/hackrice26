@@ -1,0 +1,25 @@
+{
+  "source": "demonstration assumptions, not measured inputs",
+  "debt": {
+    "complexity": 0.8,
+    "coverage_deficit": 0.4,
+    "estimated_patch_size": 0.2,
+    "churn": 0.6,
+    "graph_centrality": 0.7,
+    "runtime_impact": 0.9,
+    "path_criticality": 1.0,
+    "evidence_confidence": 1.0
+  },
+  "remediation": {
+    "blast_radius": 0.1,
+    "criticality": 0.1,
+    "coverage": 0.9,
+    "reversibility": 1.0,
+    "verification_strength": 1.0,
+    "patch_size": 0.1,
+    "schema_migration_risk": 0.0,
+    "data_migration_risk": 0.0,
+    "context_completeness": 1.0,
+    "evidence_confidence": 1.0
+  }
+}
