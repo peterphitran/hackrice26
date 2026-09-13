@@ -448,7 +448,7 @@ Acceptance:
 - [ ] Network behavior is explicit and fixture-local.
 - [ ] Cleanup runs after success, failure, timeout, or cancellation.
 
-### [ ] EV-004 — Run tests and static checks by commit phase
+### [x] EV-004 — Run tests and static checks by commit phase
 
 - Priority: P0
 - Owner: Engineer 3
@@ -458,12 +458,12 @@ Acceptance:
 
 Acceptance:
 
-- [ ] Records phase and exact commit SHA.
-- [ ] Separates command failure from test failure.
-- [ ] Preserves coverage summary when enabled.
-- [ ] Same selected commands run for candidate and fix.
+- [x] Records phase and exact commit SHA.
+- [x] Separates command failure from test failure.
+- [x] Preserves coverage summary when enabled.
+- [x] Same selected commands run for candidate and fix.
 
-### [ ] EV-005 — Build repeated k6 checkout experiment
+### [x] EV-005 — Build repeated k6 checkout experiment
 
 - Priority: P0
 - Owner: Engineer 3
@@ -473,13 +473,13 @@ Acceptance:
 
 Acceptance:
 
-- [ ] Uses fixed fixture data and equivalent container limits.
-- [ ] Stores raw k6 output and aggregate metrics.
-- [ ] Executes the `WorkloadSelection` contract rather than hardcoded agent commands.
-- [ ] Candidate regression is reproduced reliably enough for the demo.
-- [ ] Excessive variance yields `inconclusive`.
+- [x] Uses fixed fixture data and equivalent container limits.
+- [x] Stores raw k6 output and aggregate metrics.
+- [x] Executes the `WorkloadSelection` contract rather than hardcoded agent commands.
+- [x] Candidate regression is reproduced reliably enough for the demo.
+- [x] Excessive variance yields `inconclusive`.
 
-### [ ] EV-006 — Compare baseline and candidate
+### [x] EV-006 — Compare baseline and candidate
 
 - Priority: P0
 - Owner: Engineer 3
@@ -489,10 +489,10 @@ Acceptance:
 
 Acceptance:
 
-- [ ] Reports absolute values, deltas, thresholds, repetitions, and variance.
-- [ ] Classifies baseline-only, candidate-only, and shared failures.
-- [ ] Does not attribute pre-existing failures to the candidate.
-- [ ] Produces the expected N+1 regression finding without LLM interpretation.
+- [x] Reports absolute values, deltas, thresholds, repetitions, and variance.
+- [x] Classifies baseline-only, candidate-only, and shared failures.
+- [x] Does not attribute pre-existing failures to the candidate.
+- [x] Produces the expected N+1 regression finding without LLM interpretation.
 
 ### [ ] EV-007 — Verify proposed fixes independently
 
