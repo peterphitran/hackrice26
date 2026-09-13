@@ -70,6 +70,7 @@ def test_published_contract_fixtures_validate() -> None:
         "analysis_job.json": AnalysisJob,
         "repository_change.json": RepositoryChange,
         "repository_context.json": RepositoryContext,
+        "workload_selection.json": WorkloadSelection,
         "finding.json": Finding,
         "evidence.json": Evidence,
         "evidence_baseline.json": Evidence,
