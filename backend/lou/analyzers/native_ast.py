@@ -133,10 +133,12 @@ def _source_path(root: Path, relative: str) -> Path:
     return path
 
 
-def _artifact_path(root: Path, analysis_run_id: str) -> tuple[Path, str]:
+def _artifact_path(root: Path, analysis_run_id: str, phase: Phase) -> tuple[Path, str]:
     if _RUN_ID.fullmatch(analysis_run_id) is None:
         raise ValueError("Analysis run ID is not safe for an artifact path")
-    relative = PurePosixPath(".lou", "artifacts", analysis_run_id, "static-analyzer.json")
+    relative = PurePosixPath(
+        ".lou", "artifacts", analysis_run_id, phase, "static-analyzer.json"
+    )
     directory = root.joinpath(*relative.parts[:-1])
     current = root
     for part in relative.parts:
@@ -146,6 +148,17 @@ def _artifact_path(root: Path, analysis_run_id: str) -> tuple[Path, str]:
     if not directory.resolve(strict=False).is_relative_to(root):
         raise ValueError("Artifact path resolves outside the repository")
     return root.joinpath(*relative.parts), relative.as_posix()
+
+
+def _write_artifact(path: Path, content: bytes) -> None:
+    """Create an immutable artifact, allowing an identical retry to be idempotent."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with path.open("xb") as artifact:
+            artifact.write(content)
+    except FileExistsError:
+        if path.read_bytes() != content:
+            raise ValueError("Refusing to overwrite an existing analyzer artifact") from None
 
 
 def analyze_python_sources(
@@ -234,16 +247,17 @@ def analyze_python_sources(
     raw = {
         "analyzer": SOURCE,
         "rule_id": RULE_ID,
+        "phase": phase,
         "status": status,
+        "tool_exit_status": 1 if errors else 0,
         "completeness": completeness,
         "files": raw_files,
         "errors": [item.model_dump() for item in errors],
     }
     raw_bytes = (json.dumps(raw, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
     try:
-        artifact, artifact_uri = _artifact_path(root, analysis_run_id)
-        artifact.parent.mkdir(parents=True, exist_ok=True)
-        artifact.write_bytes(raw_bytes)
+        artifact, artifact_uri = _artifact_path(root, analysis_run_id, phase)
+        _write_artifact(artifact, raw_bytes)
     except (OSError, ValueError) as error:
         return StaticAnalysisResult(
             status="failed",
@@ -257,7 +271,7 @@ def analyze_python_sources(
     findings: list[Finding] = []
     for relative, symbol, line_numbers in matches:
         fingerprint = f"{symbol}:{CATEGORY}"
-        identifier = sha256(f"{analysis_run_id}:{fingerprint}".encode()).hexdigest()[:16]
+        identifier = sha256(f"{analysis_run_id}:{phase}:{fingerprint}".encode()).hexdigest()[:16]
         findings.append(
             Finding(
                 finding_id=f"finding_{identifier}",
@@ -283,7 +297,7 @@ def analyze_python_sources(
     collected_at = datetime.now(UTC)
     for file_result in raw_files:
         relative = str(file_result["file_path"])
-        identifier = sha256(f"{analysis_run_id}:{relative}".encode()).hexdigest()[:16]
+        identifier = sha256(f"{analysis_run_id}:{phase}:{relative}".encode()).hexdigest()[:16]
         evidence.append(
             Evidence(
                 evidence_id=f"evidence_{identifier}",
