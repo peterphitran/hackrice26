@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import sys
 import threading
 import time
@@ -70,7 +71,49 @@ def test_result_captures_both_streams_and_metadata(tmp_path: Path) -> None:
     assert result.duration_seconds >= 0
     assert result.stdout.text.splitlines() == ["out"]
     assert result.stderr.text.splitlines() == ["err"]
+    assert result.stdout.artifact_path is not None
+    assert result.stdout.artifact_path.read_text().splitlines() == ["out"]
+    assert result.stdout.artifact_sha256 == hashlib.sha256(
+        result.stdout.artifact_path.read_bytes()
+    ).hexdigest()
+    assert result.stderr.artifact_path is not None
+    assert result.stderr.artifact_path.read_text().splitlines() == ["err"]
+    assert result.stderr.artifact_sha256 == hashlib.sha256(
+        result.stderr.artifact_path.read_bytes()
+    ).hexdigest()
     assert result.resource_metadata == {"cpus": 1}
+
+
+def test_completed_parent_still_cleans_up_process_tree(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    terminated: list[int] = []
+    monkeypatch.setattr("lou.execution.runner._create_windows_job", lambda _: None)
+    monkeypatch.setattr(
+        "lou.execution.runner._terminate_process_tree",
+        lambda process, _: terminated.append(process.pid),
+    )
+
+    result = run_command([sys.executable, "-c", "pass"], artifact_dir=tmp_path)
+
+    assert result.exit_code == 0
+    assert terminated
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process-group behavior")
+def test_exited_parent_cannot_leave_a_descendant_running(tmp_path: Path) -> None:
+    marker = tmp_path / "child-survived"
+    child = "import pathlib,sys,time;time.sleep(.5);pathlib.Path(sys.argv[1]).touch()"
+    parent = "import subprocess,sys;subprocess.Popen([sys.executable,'-c',*sys.argv[1:]])"
+
+    run_command(
+        [sys.executable, "-c", parent, child, str(marker)],
+        artifact_dir=tmp_path,
+        timeout_seconds=0.1,
+    )
+    time.sleep(0.6)
+
+    assert not marker.exists()
 
 
 def test_missing_tool_is_distinct_from_nonzero_exit(tmp_path: Path) -> None:

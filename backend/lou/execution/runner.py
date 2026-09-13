@@ -47,13 +47,11 @@ class CommandResult:
 class _OutputCollector:
     def __init__(self, limit: int, artifact_dir: Path, name: str) -> None:
         self._limit = limit
-        self._artifact_dir = artifact_dir
-        self._name = name
         self._buffer = bytearray()
         self._byte_count = 0
         self._digest = hashlib.sha256()
-        self._artifact: BinaryIO | None = None
-        self._artifact_path: Path | None = None
+        self._artifact_path = artifact_dir / name
+        self._artifact: BinaryIO = self._artifact_path.open("xb")
 
     def read(self, stream: BinaryIO) -> None:
         for chunk in iter(lambda: stream.read(64 * 1024), b""):
@@ -62,24 +60,17 @@ class _OutputCollector:
             remaining = self._limit - len(self._buffer)
             if remaining > 0:
                 self._buffer.extend(chunk[:remaining])
-            if self._artifact is None and self._byte_count > self._limit:
-                self._artifact_path = self._artifact_dir / self._name
-                self._artifact = self._artifact_path.open("xb")
-                self._artifact.write(self._buffer)
-                self._artifact.write(chunk[remaining:] if remaining > 0 else chunk)
-            elif self._artifact is not None:
-                self._artifact.write(chunk)
+            self._artifact.write(chunk)
 
     def finish(self) -> CommandOutput:
-        if self._artifact is not None:
-            self._artifact.close()
+        self._artifact.close()
         truncated = self._byte_count > self._limit
         return CommandOutput(
             text=self._buffer.decode("utf-8", errors="replace"),
             byte_count=self._byte_count,
             truncated=truncated,
             artifact_path=self._artifact_path,
-            artifact_sha256=self._digest.hexdigest() if truncated else None,
+            artifact_sha256=self._digest.hexdigest(),
         )
 
 
@@ -87,14 +78,58 @@ def _empty_output() -> CommandOutput:
     return CommandOutput("", 0, False, None, None)
 
 
-def _terminate_process_tree(process: subprocess.Popen[bytes]) -> None:
+def _create_windows_job(process_id: int) -> int | None:
+    """Put a Windows process in a job so descendants can be terminated reliably."""
+    if os.name != "nt":
+        return None
+
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
+    kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+    kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
+    job = kernel32.CreateJobObjectW(None, None)
+    process = kernel32.OpenProcess(0x0101, False, process_id)  # terminate | set quota
+    if not job or not process or not kernel32.AssignProcessToJobObject(job, process):
+        if process:
+            kernel32.CloseHandle(process)
+        if job:
+            kernel32.CloseHandle(job)
+        return None
+    kernel32.CloseHandle(process)
+    return int(job)
+
+
+def _terminate_windows_job(job: int) -> None:
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.TerminateJobObject(job, 1)
+    kernel32.CloseHandle(job)
+
+
+def _terminate_process_tree(process: subprocess.Popen[bytes], windows_job: int | None) -> None:
     if os.name == "nt":
-        subprocess.run(
-            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        if windows_job is not None:
+            _terminate_windows_job(windows_job)
+        else:
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
     else:
         try:
             getattr(os, "killpg")(process.pid, getattr(signal, "SIGKILL"))
@@ -145,8 +180,6 @@ def run_command(
 
     artifact_dir.mkdir(parents=True, exist_ok=True)
     identifier = uuid4().hex
-    stdout_collector = _OutputCollector(max_output_bytes, artifact_dir, f"{identifier}-stdout.log")
-    stderr_collector = _OutputCollector(max_output_bytes, artifact_dir, f"{identifier}-stderr.log")
     creation_flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0
 
     try:
@@ -174,6 +207,10 @@ def run_command(
             metadata,
         )
 
+    windows_job = _create_windows_job(process.pid)
+    stdout_collector = _OutputCollector(max_output_bytes, artifact_dir, f"{identifier}-stdout.log")
+    stderr_collector = _OutputCollector(max_output_bytes, artifact_dir, f"{identifier}-stderr.log")
+
     assert process.stdout is not None
     assert process.stderr is not None
     readers = [
@@ -189,13 +226,18 @@ def run_command(
     while process.poll() is None:
         if cancellation_event is not None and cancellation_event.is_set():
             cancelled = True
-            _terminate_process_tree(process)
+            _terminate_process_tree(process, windows_job)
+            windows_job = None
             break
         if deadline is not None and time.monotonic() >= deadline:
             timed_out = True
-            _terminate_process_tree(process)
+            _terminate_process_tree(process, windows_job)
+            windows_job = None
             break
         time.sleep(0.01)
+
+    if not timed_out and not cancelled:
+        _terminate_process_tree(process, windows_job)
 
     for reader in readers:
         reader.join()

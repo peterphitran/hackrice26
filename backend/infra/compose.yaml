@@ -14,6 +14,14 @@ services:
       retries: 10
     volumes:
       - lou-postgres-data:/var/lib/postgresql/data
+    networks:
+      - default
+      - fixture
 
 volumes:
   lou-postgres-data:
+
+networks:
+  fixture:
+    name: lou-fixture
+    internal: true

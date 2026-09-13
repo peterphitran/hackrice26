@@ -51,18 +51,18 @@ Engineer 4 owns the base Compose file and PostgreSQL container. You own fixture 
 
 ### Phase 1 — Deterministic fixture
 
-- [ ] Co-author SH-004 with Engineer 4.
-- [ ] EV-001: build the FastAPI store, fixed dataset, tests, checkout workload, and N+1 patch.
-- [ ] Seed a temporary Git repository with stable logical `good` and `n-plus-one` refs.
-- [ ] Prove unit tests pass in both states while the runtime signal regresses.
+- [x ] Co-author SH-004 with Engineer 4.
+- [x ] EV-001: build the FastAPI store, fixed dataset, tests, checkout workload, and N+1 patch.
+- [x ] Seed a temporary Git repository with stable logical `good` and `n-plus-one` refs.
+- [x ] Prove unit tests pass in both states while the runtime signal regresses.
 
 ### Phase 2 — Execution foundation
 
-- [ ] EV-002: execute argument arrays with timeout, cancellation, bounded output, and typed failures.
-- [ ] EV-003: build create → execute → collect → destroy lifecycle.
-- [ ] Verify cleanup after success, failure, timeout, and cancellation.
+- [x] EV-002: execute argument arrays with timeout, cancellation, bounded output, and typed failures.
+- [x] EV-003: build create → execute → collect → destroy lifecycle.
+- [x] Verify cleanup after success, failure, timeout, and cancellation.
 
-### Phase 3 — Differential verification
+### Phase 3 — Differential verication
 
 - [ ] EV-004: run identical selected checks for each commit phase.
 - [ ] EV-005: warm up and repeat the checkout experiment under equivalent limits.
