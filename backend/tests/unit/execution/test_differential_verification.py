@@ -118,14 +118,24 @@ def test_classifies_candidate_only_and_shared_test_failures(tmp_path: Path) -> N
     assert candidate_only.verification.status == "failed"
 
 
-def test_excessive_variance_or_tool_failure_is_inconclusive(tmp_path: Path) -> None:
-    noisy = compare_candidate(
+def test_exact_query_evidence_survives_timing_noise_but_latency_only_does_not(
+    tmp_path: Path,
+) -> None:
+    noisy_query_regression = compare_candidate(
         _job(),
         (),
         (),
         _experiment("baseline", "a" * 40, queries=2, p95=20),
         _experiment("candidate", "b" * 40, queries=51, p95=50, variance=0.3),
         artifact_dir=tmp_path / "noisy",
+    )
+    noisy_latency_regression = compare_candidate(
+        _job(),
+        (),
+        (),
+        _experiment("baseline", "a" * 40, queries=2, p95=20),
+        _experiment("candidate", "b" * 40, queries=2, p95=50, variance=0.3),
+        artifact_dir=tmp_path / "noisy-latency",
     )
     failed_tool = compare_candidate(
         _job(),
@@ -136,5 +146,6 @@ def test_excessive_variance_or_tool_failure_is_inconclusive(tmp_path: Path) -> N
         artifact_dir=tmp_path / "tool-failure",
     )
 
-    assert noisy.verification.status == "inconclusive"
+    assert noisy_query_regression.verification.status == "failed"
+    assert noisy_latency_regression.verification.status == "inconclusive"
     assert failed_tool.verification.status == "inconclusive"
