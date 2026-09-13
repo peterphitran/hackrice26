@@ -1,6 +1,6 @@
 # Engineer 1 — Repository Intelligence
 
-Assigned to: ____________________
+Assigned to: Steven Dau
 
 ## Mission
 

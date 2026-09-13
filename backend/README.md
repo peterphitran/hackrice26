@@ -25,7 +25,12 @@ The direct dependencies in `pyproject.toml` are pinned to exact versions.
 ## Development Commands
 
 ```bash
-ruff format --check .
+python -m pytest
+python -m pytest tests/unit/repository \
+  --cov=lou.repository \
+  --cov-branch \
+  --cov-report=term-missing \
+  --cov-fail-under=90
 ruff check .
 mypy apps contracts lou tests
 pytest
@@ -34,6 +39,9 @@ uvicorn apps.api.main:app --reload
 lou version
 lou doctor
 ```
+
+The repository-intelligence coverage command is a required gate for RI-001. It fails when
+branch coverage for `lou.repository` falls below 90 percent.
 
 `lou analyze` is intentionally a foundation placeholder until the analysis application service is integrated.
 
