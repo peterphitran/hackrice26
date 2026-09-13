@@ -46,6 +46,47 @@ class _ParsedChanges:
     renamed_files: tuple[tuple[str, str], ...]
 
 
+@dataclass(frozen=True)
+class ResolvedRevisions:
+    """Immutable SHA-1 revisions accepted by the first local verification slice."""
+
+    repository_root: Path
+    base_commit_sha: str
+    candidate_commit_sha: str
+
+
+def resolve_repository_revisions(
+    *,
+    repository_path: str | Path,
+    base_revision: str,
+    candidate_revision: str,
+    require_ancestor: bool = True,
+) -> ResolvedRevisions:
+    """Validate a repository and resolve comparable SHA-1 commit revisions.
+
+    This preflight must run before persistence. The verification adapters currently require
+    forty-character SHA-1 IDs and a candidate descended from the baseline.
+    """
+
+    supplied_path = _validate_path(repository_path)
+    repository_root = _discover_repository_root(supplied_path)
+    base_commit_sha = _resolve_commit(repository_root, base_revision, "base")
+    candidate_commit_sha = _resolve_commit(repository_root, candidate_revision, "candidate")
+    if len(base_commit_sha) != 40 or len(candidate_commit_sha) != 40:
+        raise GitExecutionError(
+            "validate commit format",
+            None,
+            "This verification slice accepts only 40-character SHA-1 commits",
+        )
+    if require_ancestor and not _is_ancestor(
+        repository_root, base_commit_sha, candidate_commit_sha
+    ):
+        raise InvalidCommitError(repository_root, candidate_revision, "candidate")
+    if base_commit_sha == candidate_commit_sha:
+        raise InvalidCommitError(repository_root, candidate_revision, "candidate")
+    return ResolvedRevisions(repository_root, base_commit_sha, candidate_commit_sha)
+
+
 def parse_repository_changes(
     *,
     repository_id: str,
@@ -101,6 +142,23 @@ def parse_repository_changes(
             "original_candidate_revision": candidate_revision,
             "rename_similarity_threshold": _RENAME_SIMILARITY_THRESHOLD,
         },
+    )
+
+
+def _is_ancestor(repository_root: Path, base_commit_sha: str, candidate_commit_sha: str) -> bool:
+    result = _execute_git(
+        repository_root,
+        ["merge-base", "--is-ancestor", base_commit_sha, candidate_commit_sha],
+        operation="validate commit ancestry",
+    )
+    if result.returncode == 0:
+        return True
+    if result.returncode == 1:
+        return False
+    raise GitExecutionError(
+        "validate commit ancestry",
+        result.returncode,
+        _decode_stderr(result.stderr),
     )
 
 

@@ -1,5 +1,9 @@
 """Repository parsing, indexing, graph, and history services."""
 
-from lou.repository.changes import parse_repository_changes
+from lou.repository.changes import (
+    ResolvedRevisions,
+    parse_repository_changes,
+    resolve_repository_revisions,
+)
 
-__all__ = ["parse_repository_changes"]
+__all__ = ["ResolvedRevisions", "parse_repository_changes", "resolve_repository_revisions"]
