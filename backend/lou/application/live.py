@@ -35,7 +35,7 @@ from lou.verification import PhaseObservations, compare_candidate, disposable_wo
 
 _REGISTRY_REVISION = "broken-store-v1"
 _PYTEST_ID = "checkout-pytest"
-_K6_ID = "checkout-load"
+_K6_ID = "checkout-k6"
 _PYTEST_PATH = "tests/test_checkout.py"
 _K6_PATH = "loadtests/checkout.js"
 _PYTEST_COMMAND = (

@@ -109,7 +109,7 @@ def _observations(phase: str, sha: str, queries: float) -> PhaseObservations:
     load = K6Experiment(
         phase,  # type: ignore[arg-type]
         sha,
-        "checkout-load",
+        "checkout-k6",
         (sample,) * 5,
         (),
         {
@@ -143,7 +143,7 @@ class _Runner:
         artifact_dir: Path,
     ) -> PhaseObservations:
         assert _git(repository, "rev-parse", "HEAD") == commit_sha
-        assert [item.workload_id for item in selections] == ["checkout-pytest", "checkout-load"]
+        assert [item.workload_id for item in selections] == ["checkout-pytest", "checkout-k6"]
         assert commands["checkout-pytest"][:3] == ("python", "-m", "pytest")
         self.workspaces.append(repository)
         return _observations(phase, commit_sha, 2 if phase == "baseline" else 51)
@@ -180,7 +180,7 @@ def test_fixture_intelligence_selects_only_graph_reached_registry_workloads(
         _request(repository, base, candidate), "run-graph-context"
     )
 
-    assert context.selected_workload_ids == ["checkout-pytest", "checkout-load"]
+    assert context.selected_workload_ids == ["checkout-pytest", "checkout-k6"]
     assert context.affected_tests == ["tests/test_checkout.py"]
     assert context.affected_endpoints == ["POST /checkout"]
     assert context.affected_data_dependencies == ["broken_store.products"]
