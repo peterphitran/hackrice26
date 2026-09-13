@@ -51,6 +51,13 @@ class _Incomplete(Exception):
     """A safe diagnostic code for a snapshot that cannot be extracted."""
 
 
+def canonical_python_module(path: str) -> str:
+    """Return the collision-safe module component used by stable symbol keys."""
+    path_parts = list(PurePosixPath(path).parts)
+    path_parts[-1] = path_parts[-1][:-3]
+    return ".".join(quote(part, safe="").replace(".", "%2E") for part in path_parts)
+
+
 def extract_changed_symbols(
     *, repository_path: str | Path, change: RepositoryChange
 ) -> RepositoryChange:
@@ -197,10 +204,7 @@ def _read_snapshot(root: Path, sha: str, path: str, phase: _Phase) -> _Snapshot:
 def _index_symbols(
     tree: ast.Module, source: str, path: str, phase: _Phase
 ) -> tuple[list[_Symbol], list[_Symbol]]:
-    # Escape literal dots in path components so a.b.py cannot collide with a/b.py.
-    path_parts = list(PurePosixPath(path).parts)
-    path_parts[-1] = path_parts[-1][:-3]
-    module = ".".join(quote(part, safe="").replace(".", "%2E") for part in path_parts)
+    module = canonical_python_module(path)
     line_count = source.count("\n") + bool(source and not source.endswith("\n"))
     module_symbol = _Symbol(f"{module}.<module>", "module", phase, path, 1, max(1, line_count))
     owners = [module_symbol] * (line_count + 1)
