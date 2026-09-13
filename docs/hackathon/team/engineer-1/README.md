@@ -45,14 +45,14 @@ Do not implement sandbox commands, agent prompts, scoring policy, persistence, o
 
 ### Phase 1 — Change extraction
 
-- [ ] RI-001: parse added, modified, deleted, and renamed Python files.
-- [ ] RI-002: map changed lines to functions, methods, classes, or module scope.
-- [ ] Publish representative `RepositoryChange` fixtures for downstream engineers.
+- [x] RI-001: parse added, modified, deleted, and renamed Python files.
+- [x] RI-002: map changed lines to functions, methods, classes, or module scope.
+- [x] Publish representative `RepositoryChange` fixtures for downstream engineers.
 
 ### Phase 2 — Graph and impact
 
-- [ ] RI-003: create only the node and edge types required by the demo.
-- [ ] Include confidence and unresolved relationships in graph extraction.
+- [x] RI-003: create only the node and edge types required by the demo.
+- [x] Include confidence and unresolved relationships in graph extraction.
 - [ ] RI-004: traverse callers, callees, tests, endpoints, data dependencies, and scenarios.
 - [ ] Enforce depth and node-count budgets.
 

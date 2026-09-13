@@ -200,7 +200,7 @@ Acceptance:
 - [ ] Symbol keys distinguish methods with the same name in different classes.
 - [ ] Parsing failures lower completeness and do not crash the whole analysis.
 
-### [ ] RI-003 — Build the typed repository graph
+### [x] RI-003 — Build the typed repository graph
 
 - Priority: P0
 - Owner: Engineer 1
@@ -210,10 +210,10 @@ Acceptance:
 
 Acceptance:
 
-- [ ] Builds `FILE`, `FUNCTION`, `CLASS`, `TEST`, `ENDPOINT`, `DATABASE_TABLE`, and `LOAD_SCENARIO` nodes where applicable.
-- [ ] Adds only evidence-backed typed edges.
-- [ ] Records extractor confidence and unresolved relationships.
-- [ ] Serializes deterministically to a JSON artifact.
+- [x] Builds `FILE`, `FUNCTION`, `CLASS`, `TEST`, `ENDPOINT`, `DATABASE_TABLE`, and `LOAD_SCENARIO` nodes where applicable.
+- [x] Adds only evidence-backed typed edges.
+- [x] Records extractor confidence and unresolved relationships.
+- [x] Serializes deterministically to a JSON artifact.
 
 ### [ ] RI-004 — Traverse impact from changed symbols
 
