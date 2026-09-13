@@ -19,6 +19,7 @@ from contracts import (
 )
 
 AnalysisStatus = Literal["succeeded", "failed", "inconclusive", "running", "cancelled"]
+TriggerType = Literal["cli", "api", "github_webhook", "fixture"]
 RunSnapshotStatus = Literal[
     "queued", "running", "succeeded", "failed", "cancelled", "inconclusive"
 ]
@@ -38,6 +39,7 @@ class AnalysisRequest:
     policy_revision: str = "1"
     force_new_run: bool = False
     force_token: str | None = None
+    trigger_type: TriggerType = "cli"
 
     def deduplication_key(self) -> str:
         """Return a stable key for identical immutable analysis inputs."""
@@ -51,6 +53,7 @@ class AnalysisRequest:
                 stable_config,
                 self.toolchain_revision,
                 self.policy_revision,
+                self.trigger_type,
             )
         )
         return sha256(value.encode("utf-8")).hexdigest()

@@ -9,6 +9,7 @@ from typing import cast
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from contracts import LouDecision, RepositoryChange, RepositoryContext, WorkloadSelection
@@ -50,7 +51,7 @@ class SqlAlchemyAnalysisStore:
                 repository_id=repository_id,
                 base_commit_sha=request.base_commit_sha,
                 candidate_commit_sha=request.candidate_commit_sha,
-                trigger_type="cli",
+                trigger_type=request.trigger_type,
                 deduplication_key=deduplication_key,
                 configuration=request.configuration,
                 toolchain_revision=request.toolchain_revision,
@@ -178,18 +179,36 @@ class SqlAlchemyAnalysisStore:
         local_path = str(request.repository_path.resolve(strict=True))
         with self._session_factory.begin() as session:
             existing = session.scalar(
-                select(RepositoryRecord).where(RepositoryRecord.local_path == local_path)
+                select(RepositoryRecord).where(
+                    RepositoryRecord.provider == "local",
+                    RepositoryRecord.provider_repository_id == request.repository_id,
+                )
             )
             if existing is not None:
                 return existing.id
-            record = RepositoryRecord(
-                provider="local",
-                provider_repository_id=request.repository_id,
-                repository_name=request.repository_path.name,
-                local_path=local_path,
-            )
-            session.add(record)
-            session.flush()
+            try:
+                # As with the analysis-run key, a savepoint makes the unique
+                # repository registration safe when identical API calls arrive
+                # concurrently.
+                with session.begin_nested():
+                    record = RepositoryRecord(
+                        provider="local",
+                        provider_repository_id=request.repository_id,
+                        repository_name=request.repository_path.name,
+                        local_path=local_path,
+                    )
+                    session.add(record)
+                    session.flush()
+            except IntegrityError:
+                existing = session.scalar(
+                    select(RepositoryRecord).where(
+                        RepositoryRecord.provider == "local",
+                        RepositoryRecord.provider_repository_id == request.repository_id,
+                    )
+                )
+                if existing is not None:
+                    return existing.id
+                raise
             return record.id
 
     def _repository_for_run(self, analysis_run_id: UUID) -> tuple[UUID, Path]:
