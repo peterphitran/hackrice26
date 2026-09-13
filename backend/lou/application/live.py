@@ -243,7 +243,7 @@ class FixtureDecisionAdapter:
         run_id: str,
         baseline: VerificationBundle,
         candidate: VerificationBundle,
-        context: RepositoryContext,
+        context: RepositoryContext | None = None,
     ) -> LouDecision:
         classification = str(candidate.result.metadata.get("classification", "clean"))
         if classification == "inconclusive":
@@ -253,8 +253,9 @@ class FixtureDecisionAdapter:
             "runtime_impact", 1.0 if classification == "runtime_regression" else 0.0
         )
         debt_values.setdefault("evidence_confidence", 1.0)
-        for name, observed in _observed_debt_inputs(context).items():
-            debt_values.setdefault(name, observed)
+        if context is not None:
+            for name, observed in _observed_debt_inputs(context).items():
+                debt_values.setdefault(name, observed)
         remediation_values = _configured_values(request.configuration, "remediation_inputs")
         decision = decide_autonomy(
             decision_id=f"decision_{run_id}",

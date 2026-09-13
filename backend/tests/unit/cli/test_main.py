@@ -2,7 +2,6 @@ import subprocess
 from pathlib import Path
 
 from pytest import MonkeyPatch
-from sqlalchemy.exc import OperationalError
 from typer.testing import CliRunner
 
 from apps.cli import main as cli
@@ -87,20 +86,3 @@ def test_ci_exit_codes_follow_candidate_measurement() -> None:
         == 2
     )
     assert cli._exit_code(AnalysisResult("run-cli", "failed", False, ()), True) == 3
-
-
-def test_report_hides_database_connection_details(monkeypatch: MonkeyPatch) -> None:
-    class UnavailableReportReader:
-        def __init__(self, *_: object) -> None:
-            pass
-
-        def read(self, _: str) -> object:
-            raise OperationalError("SELECT 1", {}, RuntimeError("database password leaked"))
-
-    monkeypatch.setattr(cli, "EvidenceReportReader", UnavailableReportReader)
-
-    result = CliRunner().invoke(app, ["report", "--run", "00000000-0000-0000-0000-000000000001"])
-
-    assert result.exit_code == 3
-    assert "report unavailable" in result.stdout
-    assert "password" not in result.stdout

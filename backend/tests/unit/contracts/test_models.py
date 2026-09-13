@@ -5,15 +5,11 @@ from pydantic import BaseModel
 
 from contracts import (
     AgentResult,
-    AgentRun,
     AnalysisJob,
     Evidence,
     Finding,
     LouDecision,
     PatchArtifact,
-    PublicationPlan,
-    PublicationResult,
-    RemediationRequest,
     RepositoryChange,
     RepositoryContext,
     RuntimeObservation,
@@ -82,11 +78,7 @@ def test_published_contract_fixtures_validate() -> None:
         "evidence_baseline.json": Evidence,
         "verification_result.json": VerificationResult,
         "agent_result.json": AgentResult,
-        "agent_run.json": AgentRun,
         "patch_artifact.json": PatchArtifact,
-        "publication_plan.json": PublicationPlan,
-        "publication_result.json": PublicationResult,
-        "remediation_request.json": RemediationRequest,
         "verification_result_baseline.json": VerificationResult,
         "lou_decision.json": LouDecision,
     }

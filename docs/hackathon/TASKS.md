@@ -4,13 +4,6 @@ This is the execution board for the local-first Lou prototype. It converts the p
 
 The target demo is one Python repository, one known runtime regression, one graph-selected workload, one bounded agent patch, and one repeatable baseline → candidate → fix result.
 
-## Status Reconciliation (after PR #15)
-
-The checkboxes below reflect the implementation currently merged into `main`. The live CLI
-vertical slice is complete for the checked-in `broken-store` fixture, but graph-driven impact
-traversal, independent fix verification in the main flow, saved reports, and API endpoints remain
-follow-up work.
-
 ## How to Use This Board
 
 Checkboxes represent repository status:
@@ -85,7 +78,7 @@ The team should protect this path. Semantic embeddings, GitHub integration, a fr
 
 Complete this section together before the four workstreams separate.
 
-### [x] SH-001 — Lock the demo contract
+### [ ] SH-001 — Lock the demo contract
 
 - Priority: P0
 - Owner: All; Engineer 4 records the decision
@@ -101,7 +94,7 @@ Acceptance:
 - [ ] The expected repair is small enough for one reviewable patch.
 - [ ] The demo can run without GitHub or an external webhook.
 
-### [x] SH-002 — Freeze version-one domain contracts
+### [ ] SH-002 — Freeze version-one domain contracts
 
 - Priority: P0
 - Owner: Engineer 4 with sign-off from Engineers 1–3
@@ -132,7 +125,7 @@ Acceptance:
 - [ ] Unknown tool-specific fields live under metadata rather than changing the common schema.
 - [ ] No contract contains credentials or raw unrestricted prompts.
 
-### [x] SH-003 — Define ports, paths, and local configuration
+### [ ] SH-003 — Define ports, paths, and local configuration
 
 - Priority: P0
 - Owner: Engineer 4
@@ -147,7 +140,7 @@ Acceptance:
 - [ ] Secrets are optional for the recorded/mock agent path and ignored by Git.
 - [ ] All paths are configurable and no code assumes a developer-specific absolute path.
 
-### [x] SH-004 — Define artifact layout
+### [ ] SH-004 — Define artifact layout
 
 - Priority: P0
 - Owner: Engineers 3 and 4
@@ -177,7 +170,7 @@ Acceptance:
 
 Engineer 1 can implement against contract fixtures before execution or persistence is ready.
 
-### [x] RI-001 — Parse repository changes
+### [ ] RI-001 — Parse repository changes
 
 - Priority: P0
 - Owner: Engineer 1
@@ -192,7 +185,7 @@ Acceptance:
 - [ ] Produces stable, repository-relative paths.
 - [ ] Unit tests cover empty diffs and renamed files.
 
-### [x] RI-002 — Extract changed Python symbols
+### [ ] RI-002 — Extract changed Python symbols
 
 - Priority: P0
 - Owner: Engineer 1
@@ -222,7 +215,7 @@ Acceptance:
 - [x] Records extractor confidence and unresolved relationships.
 - [x] Serializes deterministically to a JSON artifact.
 
-### [x] RI-004 — Traverse impact from changed symbols
+### [ ] RI-004 — Traverse impact from changed symbols
 
 - Priority: P0
 - Owner: Engineer 1
@@ -232,13 +225,13 @@ Acceptance:
 
 Acceptance:
 
-- [x] Returns direct callers, callees, tests, endpoints, data dependencies, and scenarios.
-- [x] Uses explicit depth and node-count budgets.
-- [x] Records why every returned node was selected.
-- [x] Distinguishes no relationship found from incomplete extraction.
-- [x] Fixture test confirms `checkout()` reaches the checkout test and workload.
+- [ ] Returns direct callers, callees, tests, endpoints, data dependencies, and scenarios.
+- [ ] Uses explicit depth and node-count budgets.
+- [ ] Records why every returned node was selected.
+- [ ] Distinguishes no relationship found from incomplete extraction.
+- [ ] Fixture test confirms `checkout()` reaches the checkout test and workload.
 
-### [x] RI-005 — Select verification workloads
+### [ ] RI-005 — Select verification workloads
 
 - Priority: P0
 - Owner: Engineer 1
@@ -248,10 +241,10 @@ Acceptance:
 
 Acceptance:
 
-- [x] The N+1 candidate selects the checkout pytest and k6 scenarios.
-- [x] Selection is deterministic for identical graph input.
-- [x] A configured fallback scenario is returned when the graph is incomplete.
-- [x] Workload commands come from the checked-in registry, never model-generated shell text.
+- [ ] The N+1 candidate selects the checkout pytest and k6 scenarios.
+- [ ] Selection is deterministic for identical graph input.
+- [ ] A configured fallback scenario is returned when the graph is incomplete.
+- [ ] Workload commands come from the checked-in registry, never model-generated shell text.
 
 ### [x] RI-006 — Normalize one static analyzer
 
@@ -287,7 +280,7 @@ Acceptance:
 
 Engineer 2 should use recorded contract fixtures until real findings and verification results are available.
 
-### [x] AD-001 — Implement transparent debt scoring
+### [ ] AD-001 — Implement transparent debt scoring
 
 - Priority: P0
 - Owner: Engineer 2
@@ -302,7 +295,7 @@ Acceptance:
 - [ ] Output is deterministic and unit tested at boundary values.
 - [ ] The report can explain each weighted contribution.
 
-### [x] AD-002 — Implement remediation-risk scoring
+### [ ] AD-002 — Implement remediation-risk scoring
 
 - Priority: P0
 - Owner: Engineer 2
@@ -317,7 +310,7 @@ Acceptance:
 - [ ] Database/schema changes cannot be classified as trivially reversible.
 - [ ] Boundary cases are covered by table-driven tests.
 
-### [x] AD-003 — Build the bounded agent context bundle
+### [ ] AD-003 — Build the bounded agent context bundle
 
 - Priority: P0
 - Owner: Engineer 2
@@ -332,7 +325,7 @@ Acceptance:
 - [ ] Enforces file, byte, and token budgets.
 - [ ] Treats repository instructions as untrusted data.
 
-### [x] AD-004 — Create model adapter and deterministic mock
+### [ ] AD-004 — Create model adapter and deterministic mock
 
 - Priority: P0
 - Owner: Engineer 2
@@ -347,7 +340,7 @@ Acceptance:
 - [ ] Timeouts, retry count, token use, and estimated cost are captured.
 - [ ] Model failure produces a typed `abandoned` result rather than blocking verification.
 
-### [x] AD-005 — Generate and validate patch artifacts
+### [ ] AD-005 — Generate and validate patch artifacts
 
 - Priority: P0
 - Owner: Engineer 2
@@ -362,7 +355,7 @@ Acceptance:
 - [ ] Binary files, secrets, workflow files, and out-of-repository paths are rejected.
 - [ ] Patch hash and changed-file summary are recorded.
 
-### [x] AD-006 — Implement autonomy decision
+### [ ] AD-006 — Implement autonomy decision
 
 - Priority: P0
 - Owner: Engineer 2
@@ -377,7 +370,7 @@ Acceptance:
 - [ ] Policy ceiling can only reduce the selected level.
 - [ ] The decision includes machine-readable features and plain-language rationale.
 
-### [x] AD-007 — Orchestrate the remediation state machine
+### [ ] AD-007 — Orchestrate the remediation state machine
 
 - Priority: P0
 - Owner: Engineer 2
@@ -396,7 +389,7 @@ Acceptance:
 
 Engineer 3 owns objective measurements and the final verdict. Recorded workload selections can stand in for the graph during early development.
 
-### [x] EV-001 — Build the deterministic broken-store fixture
+### [ ] EV-001 — Build the deterministic broken-store fixture
 
 - Priority: P0
 - Owner: Engineer 3
@@ -424,7 +417,7 @@ Acceptance:
 - [ ] Candidate produces the agreed deterministic regression signal.
 - [ ] Fixture contains no external network or paid dependency.
 
-### [x] EV-002 — Implement command execution primitives
+### [ ] EV-002 — Implement command execution primitives
 
 - Priority: P0
 - Owner: Engineer 3
@@ -439,7 +432,7 @@ Acceptance:
 - [ ] Output size is bounded and complete output is stored as an artifact.
 - [ ] Cancellation and tool-not-found errors are distinguishable.
 
-### [x] EV-003 — Create controlled local sandbox lifecycle
+### [ ] EV-003 — Create controlled local sandbox lifecycle
 
 - Priority: P0
 - Owner: Engineer 3
@@ -501,7 +494,7 @@ Acceptance:
 - [x] Does not attribute pre-existing failures to the candidate.
 - [x] Produces the expected N+1 regression finding without LLM interpretation.
 
-### [x] EV-007 — Verify proposed fixes independently
+### [ ] EV-007 — Verify proposed fixes independently
 
 - Priority: P0
 - Owner: Engineer 3
@@ -511,10 +504,10 @@ Acceptance:
 
 Acceptance:
 
-- [x] Applies the patch to a fresh worktree at the expected base.
-- [x] Reruns the same unit and load workloads.
-- [x] Rejects patches that disable or weaken verification.
-- [x] Marks improvement, regression, no material change, or inconclusive.
+- [ ] Applies the patch to a fresh worktree at the expected base.
+- [ ] Reruns the same unit and load workloads.
+- [ ] Rejects patches that disable or weaken verification.
+- [ ] Marks improvement, regression, no material change, or inconclusive.
 
 ### [ ] EV-008 — Add local structured observability
 
@@ -534,7 +527,7 @@ Acceptance:
 
 Engineer 4 can use shared JSON fixtures to develop persistence, CLI, API, and reporting before the other services are implemented.
 
-### [x] PF-001 — Establish Python project tooling
+### [ ] PF-001 — Establish Python project tooling
 
 - Priority: P0
 - Owner: Engineer 4
@@ -549,7 +542,7 @@ Acceptance:
 - [ ] Dependency versions are reproducible.
 - [ ] Lint, formatting check, type check, and unit tests have stable commands.
 
-### [x] PF-002 — Add local PostgreSQL and migration tooling
+### [ ] PF-002 — Add local PostgreSQL and migration tooling
 
 - Priority: P0
 - Owner: Engineer 4
@@ -575,7 +568,7 @@ Acceptance:
 - [ ] Application performs a health check with a non-superuser role.
 - [ ] Integration tests use an isolated test database.
 
-### [x] PF-003 — Implement run and evidence repositories
+### [ ] PF-003 — Implement run and evidence repositories
 
 - Priority: P0
 - Owner: Engineer 4
@@ -590,7 +583,7 @@ Acceptance:
 - [ ] Persists verification, finding, and evidence summaries transactionally.
 - [ ] Domain services do not depend directly on SQLAlchemy sessions.
 
-### [x] PF-004 — Implement the local CLI vertical slice
+### [ ] PF-004 — Implement the local CLI vertical slice
 
 - Priority: P0
 - Owner: Engineer 4
@@ -669,7 +662,7 @@ Acceptance:
 
 ## Integration Gates
 
-### [x] INT-001 — Contract compatibility gate
+### [ ] INT-001 — Contract compatibility gate
 
 - Priority: P0
 - Integration owner: Engineer 4
@@ -682,7 +675,7 @@ Acceptance:
 - [ ] No circular imports exist between workstreams.
 - [ ] Contract version mismatch fails with a clear error.
 
-### [~] INT-002 — Runtime regression detection gate
+### [ ] INT-002 — Runtime regression detection gate
 
 - Priority: P0
 - Integration owner: Engineer 3

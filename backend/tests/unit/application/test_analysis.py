@@ -134,7 +134,6 @@ class Decision:
         run_id: str,
         baseline: VerificationBundle,
         candidate: VerificationBundle,
-        context: RepositoryContext,
     ) -> LouDecision:
         self.calls.append("decide")
         return LouDecision(
@@ -278,7 +277,9 @@ def test_service_returns_existing_run_without_repeating_work(tmp_path: Path) -> 
 
 
 @pytest.mark.parametrize("status", ["failed", "inconclusive", "running"])
-def test_reused_run_preserves_actual_status(tmp_path: Path, status: str) -> None:
+def test_reused_run_preserves_actual_status(
+    tmp_path: Path, status: str
+) -> None:
     calls: list[str] = []
     store = Store(reused=True, reused_status=status)
 

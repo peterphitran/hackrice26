@@ -296,7 +296,18 @@ class AnalysisApplicationService:
                     prediction=prediction,
                 )
 
-            final_decision = self._decision.decide(request, run_id, baseline, candidate, context)
+            # Keep the port compatible with early four-argument adapters while the
+            # canonical contract carries repository context for policy decisions.
+            try:
+                final_decision = self._decision.decide(
+                    request, run_id, baseline, candidate, context
+                )
+            except TypeError as error:
+                if "positional argument" not in str(error) and "positional arguments" not in str(
+                    error
+                ):
+                    raise
+                final_decision = self._decision.decide(request, run_id, baseline, candidate)  # type: ignore[call-arg]
             self._store.record_decision(run_id, final_decision)
             stages.append("decide")
             return self._finish(

@@ -27,5 +27,3 @@ docs/hackathon/specs/
 build/
 dist/
 *.egg-info/
-
-.agents/skills

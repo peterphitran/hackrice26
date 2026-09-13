@@ -14,12 +14,10 @@ from sqlalchemy.orm import Session, close_all_sessions
 from lou.persistence.database import create_session_factory
 from lou.persistence.interfaces import AnalysisRunInput, AnalysisRunView
 from lou.persistence.models import (
-    AgentRunRecord,
     AnalysisRunRecord,
     EvidenceRecord,
     FindingRecord,
     LouDecisionRecord,
-    RemediationAttemptRecord,
     RepositoryRecord,
     VerificationRunRecord,
     WorkloadRecord,
@@ -48,8 +46,6 @@ def session_factory() -> Iterator[Any]:
 @pytest.fixture()
 def seeded_db(session_factory: Any) -> Iterator[tuple[Any, AnalysisRunView, UUID]]:
     with session_factory.begin() as session:
-        session.execute(delete(RemediationAttemptRecord))
-        session.execute(delete(AgentRunRecord))
         session.execute(delete(EvidenceRecord))
         session.execute(delete(LouDecisionRecord))
         session.execute(delete(VerificationRunRecord))

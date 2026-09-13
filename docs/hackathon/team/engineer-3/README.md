@@ -159,8 +159,3 @@ verification verdict
 ## Stretch Work
 
 EV-008 adds structured logs or optional OpenTelemetry. Observability must remain local and cannot become a prerequisite for collecting verification evidence.
-
-
-## Focus on Future Task 
-
-| M4 — Impact prediction | Complete |
