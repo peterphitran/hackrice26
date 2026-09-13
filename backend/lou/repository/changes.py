@@ -21,14 +21,25 @@ _GIT_REPOSITORY_ENVIRONMENT_VARIABLES = (
     "GIT_ALTERNATE_OBJECT_DIRECTORIES",
     "GIT_CEILING_DIRECTORIES",
     "GIT_COMMON_DIR",
+    "GIT_CONFIG",
     "GIT_CONFIG_COUNT",
     "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_NOSYSTEM",
     "GIT_CONFIG_PARAMETERS",
     "GIT_CONFIG_SYSTEM",
     "GIT_DIR",
     "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+    "GIT_DIFF_OPTS",
+    "GIT_GLOB_PATHSPECS",
+    "GIT_GRAFT_FILE",
+    "GIT_ICASE_PATHSPECS",
+    "GIT_IMPLICIT_WORK_TREE",
     "GIT_INDEX_FILE",
+    "GIT_INTERNAL_SUPER_PREFIX",
+    "GIT_LITERAL_PATHSPECS",
     "GIT_NAMESPACE",
+    "GIT_NOGLOB_PATHSPECS",
+    "GIT_NO_REPLACE_OBJECTS",
     "GIT_OBJECT_DIRECTORY",
     "GIT_PREFIX",
     "GIT_REPLACE_REF_BASE",
@@ -66,10 +77,15 @@ def parse_repository_changes(
             "--no-pager",
             "diff",
             "--no-ext-diff",
+            "--no-textconv",
+            "--text",
             "--name-status",
             "-z",
+            "--diff-algorithm=myers",
+            "--no-indent-heuristic",
             f"--find-renames={_RENAME_SIMILARITY_THRESHOLD}%",
-            "--diff-filter=AMDR",
+            "-l0",
+            "--diff-filter=AMDRT",
             base_commit_sha,
             candidate_commit_sha,
             "--",
@@ -117,6 +133,9 @@ def _validate_path(repository_path: str | Path) -> Path:
 
 
 def _discover_repository_root(path: Path) -> Path:
+    marker_root = _find_repository_marker(path)
+    if marker_root is None:
+        raise InvalidRepositoryError(path, "no Git working-tree marker was found")
     result = _execute_git(
         path,
         ["rev-parse", "--show-toplevel"],
@@ -141,7 +160,22 @@ def _discover_repository_root(path: Path) -> Path:
             path,
             "Git working-tree root does not contain the supplied path",
         )
+    if root != marker_root:
+        raise InvalidRepositoryError(
+            path,
+            "Git working-tree root does not match the nearest repository marker",
+        )
     return root
+
+
+def _find_repository_marker(path: Path) -> Path | None:
+    for candidate in (path, *path.parents):
+        try:
+            if (candidate / ".git").exists():
+                return candidate
+        except OSError as error:
+            raise InvalidRepositoryError(path, str(error)) from error
+    return None
 
 
 def _resolve_commit(
@@ -190,6 +224,7 @@ def _execute_git(
     for variable in tuple(environment):
         if variable.startswith(_GIT_REPOSITORY_ENVIRONMENT_PREFIXES):
             environment.pop(variable)
+    environment["GIT_GRAFT_FILE"] = os.devnull
     environment["LC_ALL"] = "C"
     environment["LANG"] = "C"
     try:
@@ -230,7 +265,7 @@ def _parse_name_status_z(output: bytes) -> _ParsedChanges:
         status = _decode_status(fields[index])
         index += 1
 
-        if status in {"A", "M", "D"}:
+        if status in {"A", "M", "D", "T"}:
             if index >= len(fields):
                 raise GitExecutionError(
                     "parse diff output", None, f"status {status} is missing its path"
@@ -241,7 +276,7 @@ def _parse_name_status_z(output: bytes) -> _ParsedChanges:
                 continue
             if status == "A":
                 added.add(path)
-            elif status == "M":
+            elif status in {"M", "T"}:
                 modified.add(path)
             else:
                 deleted.add(path)
@@ -285,7 +320,7 @@ def _decode_status(value: bytes) -> str:
 
 
 def _decode_path(value: bytes) -> str:
-    if not value:
+    if not value or b"\0" in value:
         raise GitExecutionError("parse diff output", None, "Git returned an empty path")
     try:
         path = value.decode("utf-8")

@@ -1,0 +1,21 @@
+{
+  "changed_symbols": ["store.app.Store.checkout"],
+  "symbols": [
+    {
+      "key": "store.app.Store.checkout",
+      "kind": "method",
+      "phase": "baseline",
+      "path": "store/app.py",
+      "start_line": 49,
+      "end_line": 67
+    },
+    {
+      "key": "store.app.Store.checkout",
+      "kind": "method",
+      "phase": "candidate",
+      "path": "store/app.py",
+      "start_line": 49,
+      "end_line": 69
+    }
+  ]
+}

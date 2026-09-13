@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import os
 import subprocess
 from collections.abc import Sequence
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -191,6 +193,75 @@ def test_repository_core_worktree_cannot_redirect_analysis(
     assert error.value.reason == "Git working-tree root does not contain the supplied path"
 
 
+def test_nested_repository_cannot_redirect_analysis_to_parent(
+    git_repository: Path,
+) -> None:
+    _commit(git_repository, "outer")
+    nested = git_repository / "nested"
+    subprocess.run(["git", "init", "-q", str(nested)], check=True)
+    _git(nested, "config", "user.name", "Nested Tests")
+    _git(nested, "config", "user.email", "nested@example.invalid")
+    _commit(nested, "nested")
+    _git(nested, "config", "core.worktree", str(git_repository))
+
+    with pytest.raises(InvalidRepositoryError) as error:
+        _parse(nested, "HEAD", "HEAD")
+
+    assert error.value.reason == (
+        "Git working-tree root does not match the nearest repository marker"
+    )
+
+
+def test_inherited_git_config_cannot_redirect_analysis(
+    git_repository: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    commit = _commit(git_repository, "base")
+    decoy = tmp_path / "decoy"
+    subprocess.run(["git", "init", "-q", str(decoy)], check=True)
+    config = tmp_path / "inherited.gitconfig"
+    config.write_text(f"[core]\nworktree = {decoy}\n")
+    monkeypatch.setenv("GIT_CONFIG", str(config))
+
+    change = _parse(git_repository, commit, commit)
+
+    assert change.base_commit_sha == commit
+
+
+def test_inherited_graft_file_cannot_rewrite_commit_ancestry(
+    git_repository: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = _commit(git_repository, "first")
+    (git_repository / "source.py").write_text("VALUE = 2\n")
+    second = _commit(git_repository, "second")
+    (git_repository / "source.py").write_text("VALUE = 3\n")
+    third = _commit(git_repository, "third")
+    grafts = tmp_path / "grafts"
+    grafts.write_text(f"{third} {first}\n")
+    monkeypatch.setenv("GIT_GRAFT_FILE", str(grafts))
+
+    change = _parse(git_repository, "HEAD^", "HEAD")
+
+    assert change.base_commit_sha == second
+    assert change.candidate_commit_sha == third
+
+
+def test_repository_local_grafts_cannot_rewrite_commit_ancestry(
+    git_repository: Path,
+) -> None:
+    first = _commit(git_repository, "first")
+    (git_repository / "source.py").write_text("VALUE = 2\n")
+    second = _commit(git_repository, "second")
+    (git_repository / "source.py").write_text("VALUE = 3\n")
+    third = _commit(git_repository, "third")
+    grafts = git_repository / ".git" / "info" / "grafts"
+    grafts.write_text(f"{third} {first}\n")
+
+    change = _parse(git_repository, "HEAD^", "HEAD")
+
+    assert change.base_commit_sha == second
+    assert change.candidate_commit_sha == third
+
+
 def test_revisions_resolve_to_full_commit_ids_and_serialize(git_repository: Path) -> None:
     base = _commit(git_repository, "base")
     _git(git_repository, "tag", "base-tag", base)
@@ -332,19 +403,21 @@ def test_git_execution_sanitizes_only_repository_selection_environment(
     captured_environment: dict[str, str] = {}
 
     def capture_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[bytes]:
-        captured_environment.update(kwargs["env"])
+        captured_environment.update(cast(dict[str, str], kwargs["env"]))
         assert kwargs["timeout"] == changes_module._GIT_TIMEOUT_SECONDS
         assert kwargs["shell"] is False
         return subprocess.CompletedProcess(args=[], returncode=0, stdout=b"", stderr=b"")
 
-    monkeypatch.setattr(changes_module.subprocess, "run", capture_run)
+    monkeypatch.setattr(subprocess, "run", capture_run)
 
     changes_module._execute_git(tmp_path, ["status"], operation="inspect repository")
 
     assert all(
         variable not in captured_environment
         for variable in changes_module._GIT_REPOSITORY_ENVIRONMENT_VARIABLES
+        if variable != "GIT_GRAFT_FILE"
     )
+    assert captured_environment["GIT_GRAFT_FILE"] == os.devnull
     assert "GIT_CONFIG_KEY_0" not in captured_environment
     assert "GIT_CONFIG_VALUE_0" not in captured_environment
     assert captured_environment["PATH"] == "/expected/bin"
@@ -364,7 +437,7 @@ def test_timed_out_git_command_is_a_git_execution_error(
             stderr=b"fatal: private repository diagnostic",
         )
 
-    monkeypatch.setattr(changes_module.subprocess, "run", time_out)
+    monkeypatch.setattr(subprocess, "run", time_out)
 
     with pytest.raises(GitExecutionError) as error:
         _parse(git_repository, "HEAD", "HEAD")
@@ -413,7 +486,7 @@ def test_git_spawn_failure_is_a_git_execution_error(
     def fail_spawn(*args: object, **kwargs: object) -> subprocess.CompletedProcess[bytes]:
         raise OSError("git unavailable")
 
-    monkeypatch.setattr(changes_module.subprocess, "run", fail_spawn)
+    monkeypatch.setattr(subprocess, "run", fail_spawn)
 
     with pytest.raises(GitExecutionError) as error:
         _parse(git_repository, "HEAD", "HEAD")
@@ -444,3 +517,61 @@ def test_git_errors_keep_diagnostics_separate_from_public_message() -> None:
     assert error.stderr == "sensitive internal diagnostic"
     assert str(error) == error.public_message
     assert "sensitive internal diagnostic" not in error.public_message
+
+
+@pytest.mark.parametrize(
+    "variable",
+    [
+        "GIT_LITERAL_PATHSPECS",
+        "GIT_GLOB_PATHSPECS",
+        "GIT_NOGLOB_PATHSPECS",
+        "GIT_ICASE_PATHSPECS",
+        "GIT_DIFF_OPTS",
+    ],
+)
+def test_inherited_diff_options_cannot_change_python_selection(
+    git_repository: Path, monkeypatch: pytest.MonkeyPatch, variable: str
+) -> None:
+    base = _commit(git_repository, "base")
+    (git_repository / "nested").mkdir()
+    (git_repository / "nested" / "source.py").write_text("VALUE = 1\n")
+    (git_repository / "excluded.PY").write_text("VALUE = 1\n")
+    candidate = _commit(git_repository, "candidate")
+    monkeypatch.setenv(variable, "--unified=50" if variable == "GIT_DIFF_OPTS" else "1")
+
+    assert _parse(git_repository, base, candidate).added_files == ["nested/source.py"]
+
+
+def test_repository_rename_limit_cannot_change_classification(git_repository: Path) -> None:
+    originals = {}
+    for index in range(4):
+        path = git_repository / f"before_{index}.py"
+        path.write_text("\n".join(f"VALUE_{line} = {line}" for line in range(100)) + "\n")
+        originals[index] = path
+    base = _commit(git_repository, "base")
+    for index, path in originals.items():
+        renamed = git_repository / f"after_{index}.py"
+        path.rename(renamed)
+        renamed.write_text(renamed.read_text().replace("VALUE_50 = 50", "VALUE_50 = 51"))
+    candidate = _commit(git_repository, "renames")
+    _git(git_repository, "config", "diff.renameLimit", "1")
+
+    change = _parse(git_repository, base, candidate)
+
+    assert change.renamed_files == {f"before_{index}.py": f"after_{index}.py" for index in range(4)}
+    assert change.added_files == []
+    assert change.deleted_files == []
+
+
+def test_repository_diff_drivers_cannot_execute(git_repository: Path, tmp_path: Path) -> None:
+    marker = tmp_path / "textconv-ran"
+    source = git_repository / "source.py"
+    source.write_text("VALUE = 1\n")
+    (git_repository / ".gitattributes").write_text("*.py diff=unsafe\n")
+    base = _commit(git_repository, "base")
+    source.write_text("VALUE = 2\n")
+    candidate = _commit(git_repository, "candidate")
+    _git(git_repository, "config", "diff.unsafe.textconv", f"touch {marker}")
+
+    assert _parse(git_repository, base, candidate).modified_files == ["source.py"]
+    assert not marker.exists()
