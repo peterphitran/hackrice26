@@ -1,7 +1,6 @@
 import os
 
 import pytest
-
 from store.app import Receipt, Store, seed_database
 
 DATABASE_URL = os.getenv("BROKEN_STORE_TEST_DATABASE_URL")

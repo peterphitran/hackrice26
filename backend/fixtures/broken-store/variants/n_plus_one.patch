@@ -24,7 +24,7 @@ diff --git a/store/app.py b/store/app.py
 +                query_count += 1
 +                price_cents = cursor.fetchone()[0]
 +                total_cents += price_cents * quantity
- 
+
          receipt = Receipt(
              item_count=sum(quantity for _, quantity in cart),
 -            total_cents=sum(products[product_id] * quantity for product_id, quantity in cart),

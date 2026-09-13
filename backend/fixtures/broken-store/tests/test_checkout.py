@@ -1,9 +1,8 @@
 import os
 
 import psycopg
-from fastapi.testclient import TestClient
-
 import store.app as store_app
+from fastapi.testclient import TestClient
 
 
 class FakeCursor:
