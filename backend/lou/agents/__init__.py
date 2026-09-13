@@ -8,6 +8,13 @@ from lou.agents.context import (
     RepositoryText,
     build_context_bundle,
 )
+from lou.agents.patch_validation import (
+    ParsedPatchFile,
+    PatchRejection,
+    PatchValidationLimits,
+    PatchValidationResult,
+    validate_patch,
+)
 from lou.agents.provider import (
     AgentAdapter,
     AgentProvider,
@@ -24,8 +31,13 @@ __all__ = [
     "BundleItem",
     "DeterministicMockProvider",
     "OmittedContext",
+    "ParsedPatchFile",
+    "PatchRejection",
+    "PatchValidationLimits",
+    "PatchValidationResult",
     "ProviderRequest",
     "ProviderResponse",
     "RepositoryText",
     "build_context_bundle",
+    "validate_patch",
 ]
