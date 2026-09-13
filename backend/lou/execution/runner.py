@@ -86,7 +86,7 @@ def _create_windows_job(process_id: int) -> int | None:
     import ctypes
     from ctypes import wintypes
 
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32 = getattr(ctypes, "WinDLL")("kernel32", use_last_error=True)
     kernel32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
     kernel32.CreateJobObjectW.restype = wintypes.HANDLE
     kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
@@ -112,7 +112,7 @@ def _terminate_windows_job(job: int) -> None:
     import ctypes
     from ctypes import wintypes
 
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32 = getattr(ctypes, "WinDLL")("kernel32", use_last_error=True)
     kernel32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
     kernel32.TerminateJobObject(job, 1)

@@ -4,6 +4,7 @@ from lou.verification.checks import PhaseCheck, run_phase_checks
 from lou.verification.compare import DifferentialResult, compare_candidate
 from lou.verification.fix import FixVerifier, PhaseObservations, WorkloadRunner
 from lou.verification.runtime import DockerWorkloadRunner
+from lou.verification.worktree import WorktreeError, disposable_worktree
 
 __all__ = [
     "DifferentialResult",
@@ -12,6 +13,8 @@ __all__ = [
     "PhaseCheck",
     "PhaseObservations",
     "WorkloadRunner",
+    "WorktreeError",
     "compare_candidate",
+    "disposable_worktree",
     "run_phase_checks",
 ]

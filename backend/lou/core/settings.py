@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     test_database_url: str = (
         "postgresql+psycopg://lou_test_app:lou_test_app@localhost:5432/lou_test"
     )
+    fixture_database_url: str = "postgresql://lou_migrator:lou_migrator@postgres:5432/lou"
     artifact_root: Path = Field(default=Path(".lou/artifacts"))
 
 

@@ -1,6 +1,10 @@
 """Repository parsing, indexing, graph, and history services."""
 
-from lou.repository.changes import parse_repository_changes, resolve_repository_revisions
+from lou.repository.changes import (
+    ResolvedRevisions,
+    parse_repository_changes,
+    resolve_repository_revisions,
+)
 from lou.repository.graph import (
     EdgeType,
     GraphDiagnostic,
@@ -13,6 +17,7 @@ from lou.repository.graph import (
 from lou.repository.symbols import extract_changed_symbols
 
 __all__ = [
+    "ResolvedRevisions",
     "EdgeType",
     "GraphDiagnostic",
     "GraphLimits",

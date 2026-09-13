@@ -1,6 +1,7 @@
 # Lou Backend Foundation
 
-The backend is a local-first Python application. Its current scope is the platform foundation: contracts, settings, health endpoint, CLI shell, PostgreSQL Compose configuration, and persistence wiring.
+The backend is a local-first Python application. It includes contracts, PostgreSQL persistence,
+evidence-driven analysis orchestration, and a narrow live `lou analyze` fixture workflow.
 
 See the [foundation specification](../docs/hackathon/foundation/README.md) for scope and acceptance criteria.
 
@@ -43,7 +44,38 @@ lou doctor
 The repository-intelligence coverage command is a required gate for RI-001. It fails when
 branch coverage for `lou.repository` falls below 90 percent.
 
-`lou analyze` is intentionally a foundation placeholder until the analysis application service is integrated.
+## Live Fixture Analysis
+
+The first live slice intentionally supports only Lou's checked-in `broken-store` fixture. It creates
+separate detached baseline and candidate worktrees, runs the same pytest and k6 workloads in each,
+stores immutable evidence in PostgreSQL, and reports a deterministic result. It does not execute
+arbitrary third-party repository commands or generate patches.
+
+```bash
+cd backend
+docker compose --env-file .env -f infra/compose.yaml up -d postgres
+alembic upgrade head
+python fixtures/broken-store/scripts/seed_fixture_repo.py .lou/broken-store
+lou analyze \
+  --repo .lou/broken-store \
+  --base good \
+  --candidate n-plus-one \
+  --output json
+```
+
+The expected candidate summary has a `query_count_delta` of `49` (2 baseline queries versus 51
+candidate queries) and a `runtime_regression` classification. Normal interactive runs return zero
+after printing a completed clean, regression, or inconclusive analysis. Add `--ci` to return `1`
+for a measured regression, `2` for an inconclusive measurement, and `3` for an operational failure.
+
+Run the opt-in Docker proof against the disposable `lou_test` database:
+
+```bash
+RUN_LOU_LIVE_E2E=1 \
+LOU_TEST_DATABASE_URL=postgresql+psycopg://lou_migrator:lou_migrator@127.0.0.1:5432/lou_test \
+LOU_FIXTURE_DATABASE_URL=postgresql://lou_migrator:lou_migrator@postgres:5432/lou_test \
+python -m pytest -m integration tests/integration/application/test_live_fixture.py
+```
 
 ## PostgreSQL (optional until PF-002)
 
