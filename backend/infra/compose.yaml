@@ -16,10 +16,10 @@ services:
       retries: 10
     volumes:
       - lou-postgres-data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
     networks:
       - default
       - fixture
-      - ./postgres/init:/docker-entrypoint-initdb.d:ro
 
 volumes:
   lou-postgres-data:

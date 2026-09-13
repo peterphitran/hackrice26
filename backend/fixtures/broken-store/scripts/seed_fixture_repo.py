@@ -35,7 +35,20 @@ def seed(target: Path) -> None:
     git(target, "commit", "-m", "good checkout")
     git(target, "tag", "good")
 
-    git(target, "apply", str(FIXTURE_ROOT / "variants" / "n_plus_one.patch"))
+    patch: list[str] = []
+    in_hunk = False
+    for line in (FIXTURE_ROOT / "variants" / "n_plus_one.patch").read_text().splitlines():
+        if line.startswith("@@"):
+            in_hunk = True
+            patch.append(line)
+        else:
+            patch.append(line + ("\r" if os.linesep == "\r\n" and in_hunk else ""))
+    subprocess.run(
+        ["git", "-C", str(target), "apply", "--unidiff-zero", "-"],
+        input=("\n".join(patch) + "\n").encode(),
+        check=True,
+        env=COMMIT_ENV,
+    )
     git(target, "add", "store/app.py")
     git(target, "commit", "-m", "introduce N+1 checkout query")
     git(target, "tag", "n-plus-one")

@@ -62,12 +62,15 @@ Engineer 4 owns the base Compose file and PostgreSQL container. You own fixture 
 - [x] EV-003: build create → execute → collect → destroy lifecycle.
 - [x] Verify cleanup after success, failure, timeout, and cancellation.
 
-### Phase 3 — Differential verication
+### Phase 3 — Differential verification
 
-- [ ] EV-004: run identical selected checks for each commit phase.
-- [ ] EV-005: warm up and repeat the checkout experiment under equivalent limits.
-- [ ] EV-006: calculate absolute values, deltas, thresholds, repetitions, and variance.
-- [ ] Classify candidate-only versus shared/pre-existing failures.
+- [x] EV-004: run identical selected checks for each commit phase.
+- [x] EV-005: warm up and repeat the checkout experiment under equivalent limits.
+- [x] EV-006: calculate absolute values, deltas, thresholds, repetitions, and variance.
+- [x] Classify candidate-only versus shared/pre-existing failures.
+
+Verify from `backend/` with `python -m pytest tests/unit/execution`. A live benchmark additionally
+requires Docker and `k6` on `PATH`; missing tools produce an inconclusive result.
 
 ### Phase 4 — Fix verification
 
