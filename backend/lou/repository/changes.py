@@ -344,4 +344,5 @@ def _decode_stderr(stderr: bytes | str | None) -> str:
 
 
 def _is_python_path(path: str) -> bool:
-    return PurePosixPath(path).suffix == ".py"
+    # pathlib reports no suffix for an all-dots name, so "..py" would look non-Python.
+    return PurePosixPath(path).name.endswith(".py")
