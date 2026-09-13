@@ -444,3 +444,26 @@ def test_git_errors_keep_diagnostics_separate_from_public_message() -> None:
     assert error.stderr == "sensitive internal diagnostic"
     assert str(error) == error.public_message
     assert "sensitive internal diagnostic" not in error.public_message
+
+
+@pytest.mark.parametrize(
+    "variable",
+    [
+        "GIT_LITERAL_PATHSPECS",
+        "GIT_GLOB_PATHSPECS",
+        "GIT_NOGLOB_PATHSPECS",
+        "GIT_ICASE_PATHSPECS",
+        "GIT_DIFF_OPTS",
+    ],
+)
+def test_inherited_diff_options_cannot_change_python_selection(
+    git_repository: Path, monkeypatch: pytest.MonkeyPatch, variable: str
+) -> None:
+    base = _commit(git_repository, "base")
+    (git_repository / "nested").mkdir()
+    (git_repository / "nested" / "source.py").write_text("VALUE = 1\n")
+    (git_repository / "excluded.PY").write_text("VALUE = 1\n")
+    candidate = _commit(git_repository, "candidate")
+    monkeypatch.setenv(variable, "--unified=50" if variable == "GIT_DIFF_OPTS" else "1")
+
+    assert _parse(git_repository, base, candidate).added_files == ["nested/source.py"]

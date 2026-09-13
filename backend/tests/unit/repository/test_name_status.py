@@ -31,6 +31,10 @@ def test_preserves_whitespace_in_paths() -> None:
     assert parsed.added_files == ("folder/a file\twith\nlines.py",)
 
 
+def test_type_change_is_reported_as_modified() -> None:
+    assert _parse_name_status_z(b"T\0changed.py\0").modified_files == ("changed.py",)
+
+
 @pytest.mark.parametrize(
     ("output", "added", "deleted"),
     [
@@ -59,7 +63,6 @@ def test_classifies_renames_crossing_python_scope(
         b"A\0\0",
         b"R100\0only-one-path.py\0",
         b"R101\0old.py\0new.py\0",
-        b"T\0changed.py\0",
         b"A\0../escape.py\0",
         b"A\0./not-normalized.py\0",
         b"A\0bad-utf8-\xff.py\0",

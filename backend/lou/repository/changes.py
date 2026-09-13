@@ -27,7 +27,12 @@ _GIT_REPOSITORY_ENVIRONMENT_VARIABLES = (
     "GIT_CONFIG_SYSTEM",
     "GIT_DIR",
     "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+    "GIT_DIFF_OPTS",
     "GIT_INDEX_FILE",
+    "GIT_LITERAL_PATHSPECS",
+    "GIT_GLOB_PATHSPECS",
+    "GIT_NOGLOB_PATHSPECS",
+    "GIT_ICASE_PATHSPECS",
     "GIT_NAMESPACE",
     "GIT_OBJECT_DIRECTORY",
     "GIT_PREFIX",
@@ -69,7 +74,7 @@ def parse_repository_changes(
             "--name-status",
             "-z",
             f"--find-renames={_RENAME_SIMILARITY_THRESHOLD}%",
-            "--diff-filter=AMDR",
+            "--diff-filter=AMDRT",
             base_commit_sha,
             candidate_commit_sha,
             "--",
@@ -230,7 +235,7 @@ def _parse_name_status_z(output: bytes) -> _ParsedChanges:
         status = _decode_status(fields[index])
         index += 1
 
-        if status in {"A", "M", "D"}:
+        if status in {"A", "M", "D", "T"}:
             if index >= len(fields):
                 raise GitExecutionError(
                     "parse diff output", None, f"status {status} is missing its path"
@@ -241,7 +246,7 @@ def _parse_name_status_z(output: bytes) -> _ParsedChanges:
                 continue
             if status == "A":
                 added.add(path)
-            elif status == "M":
+            elif status in {"M", "T"}:
                 modified.add(path)
             else:
                 deleted.add(path)
@@ -285,7 +290,7 @@ def _decode_status(value: bytes) -> str:
 
 
 def _decode_path(value: bytes) -> str:
-    if not value:
+    if not value or b"\0" in value:
         raise GitExecutionError("parse diff output", None, "Git returned an empty path")
     try:
         path = value.decode("utf-8")
