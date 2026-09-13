@@ -9,6 +9,7 @@ from contracts import (
     RepositoryChange,
     RepositoryContext,
     VerificationResult,
+    WorkloadSelection,
 )
 
 FIXTURES_DIR = Path(__file__).parents[3] / "contracts" / "fixtures"
@@ -63,10 +64,13 @@ def test_evidence_and_decision_support_hackathon_result() -> None:
 def test_published_contract_fixtures_validate() -> None:
     fixtures = {
         "analysis_job.json": AnalysisJob,
+        "workload_selection.json": WorkloadSelection,
         "repository_context.json": RepositoryContext,
         "finding.json": Finding,
         "evidence.json": Evidence,
+        "evidence_baseline.json": Evidence,
         "verification_result.json": VerificationResult,
+        "verification_result_baseline.json": VerificationResult,
         "lou_decision.json": LouDecision,
     }
 

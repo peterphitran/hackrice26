@@ -1,0 +1,33 @@
+diff --git a/store/app.py b/store/app.py
+--- a/store/app.py
++++ b/store/app.py
+@@ -49,19 +49,21 @@ class Store:
+     def checkout(self) -> tuple[Receipt, int]:
+         query_count = 0
+         with psycopg.connect(self.database_url) as connection, connection.cursor() as cursor:
+             cursor.execute("SELECT product_id, quantity FROM broken_store.cart_items")
+             query_count += 1
+             cart = cursor.fetchall()
+-            product_ids = [product_id for product_id, _ in cart]
+-            cursor.execute(
+-                "SELECT id, price_cents FROM broken_store.products WHERE id = ANY(%s)",
+-                (product_ids,),
+-            )
+-            query_count += 1
+-            products = dict(cursor.fetchall())
++            total_cents = 0
++            for product_id, quantity in cart:
++                cursor.execute(
++                    "SELECT price_cents FROM broken_store.products WHERE id = %s",
++                    (product_id,),
++                )
++                query_count += 1
++                price_cents = cursor.fetchone()[0]
++                total_cents += price_cents * quantity
+ 
+         receipt = Receipt(
+             item_count=sum(quantity for _, quantity in cart),
+-            total_cents=sum(products[product_id] * quantity for product_id, quantity in cart),
++            total_cents=total_cents,
+         )
+         return receipt, query_count

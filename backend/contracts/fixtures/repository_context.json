@@ -1,14 +1,17 @@
 {
   "schema_version": "1",
   "repository_id": "repo_store_api",
-  "commit_sha": "n_plus_one_commit",
-  "changed_symbols": ["orders.service.list_orders"],
-  "affected_symbols": ["orders.repository.get_customer"],
-  "affected_tests": ["tests/test_orders.py::test_list_orders"],
-  "affected_endpoints": ["GET /orders"],
-  "affected_data_dependencies": ["orders", "customers"],
-  "selected_workload_ids": ["checkout-load"],
-  "selection_reasons": {"checkout-load": "Changed request path calls order listing."},
+  "commit_sha": "n-plus-one",
+  "changed_symbols": ["store.app.Store.checkout"],
+  "affected_symbols": ["store.app.checkout"],
+  "affected_tests": ["tests/test_checkout.py::test_checkout_receipt_stays_correct"],
+  "affected_endpoints": ["POST /checkout"],
+  "affected_data_dependencies": ["broken_store.cart_items", "broken_store.products"],
+  "selected_workload_ids": ["checkout-pytest", "checkout-load"],
+  "selection_reasons": {
+    "checkout-pytest": "Directly exercises Store.checkout customer-visible behavior.",
+    "checkout-load": "Measures the changed POST /checkout runtime path and database query count."
+  },
   "unresolved_relationships": [],
   "completeness": 0.95,
   "metadata": {"extractor": "python-ast"}
